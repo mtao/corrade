@@ -105,6 +105,17 @@ bool ConfigurationGroup::hasGroup(const std::string& name, const unsigned int in
     return findGroup(name, index) != _groups.end();
 }
 
+
+std::vector<std::string> ConfigurationGroup::groupNames() const {
+    std::vector<std::string> group_names;
+    group_names.reserve(groupCount());
+
+    for(const Group& group: _groups)
+        group_names.emplace_back(group.name);
+
+    return group_names;
+}
+
 unsigned int ConfigurationGroup::groupCount(const std::string& name) const {
     unsigned int count = 0;
     for(const Group& group: _groups)
@@ -236,6 +247,15 @@ unsigned int ConfigurationGroup::valueCount(const std::string& key) const {
         if(value.key == key) ++count;
 
     return count;
+}
+
+std::vector<std::string> ConfigurationGroup::valueKeys() const {
+    std::vector<std::string> value_names;
+    value_names.reserve(valueCount());
+
+    for(const Value& value: _values)
+        value_names.emplace_back(value.key);
+    return value_names;
 }
 
 const std::string* ConfigurationGroup::valueInternal(const std::string& key, const unsigned int index, ConfigurationValueFlags) const {

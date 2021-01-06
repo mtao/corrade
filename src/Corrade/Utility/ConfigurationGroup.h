@@ -134,6 +134,11 @@ class CORRADE_UTILITY_EXPORT ConfigurationGroup {
         }
 
         /**
+         * @brief Returns all group names
+         */
+        std::vector<std::string> groupNames() const;
+
+        /**
          * @brief Whether given group exists
          * @param name      Name
          * @param index     Group index. Default is first found group.
@@ -235,6 +240,11 @@ class CORRADE_UTILITY_EXPORT ConfigurationGroup {
          * @see @ref hasValues(), @ref groupCount()
          */
         unsigned int valueCount() const;
+
+        /**
+         * @brief Returns all group names
+         */
+        std::vector<std::string> valueKeys() const;
 
         /**
          * @brief Whether value exists
