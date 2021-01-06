@@ -2,7 +2,7 @@
 #   This file is part of Corrade.
 #
 #   Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-#               2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+#               2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a
 #   copy of this software and associated documentation files (the "Software"),
@@ -174,6 +174,18 @@ class SortCopyrights(unittest.TestCase):
             ])
 
         self.assertIn('First copyright found for <foo@bar> is missing years {2017, 2019}', context.exception.args[0])
+
+    def test_extra_year2(self):
+        with self.assertRaises(ValueError) as context:
+            sort_copyrights([
+                "Copyright © 2016 John Doe <foo@bar>",
+                # After this entry the set needs to get updated, otherwise
+                # 2018 will get lost
+                "Copyright © 2016, 2018 John Doe <foo@bar>",
+                "Copyright © 2016, 2020 John Doe <foo@bar>"
+            ])
+
+        self.assertIn('First copyright found for <foo@bar> is missing years {2020}', context.exception.args[0])
 
 class ParseFile(unittest.TestCase):
     def __init__(self, *args, **kwargs):

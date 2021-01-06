@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -27,6 +27,7 @@
 
 /** @file
 @brief Forward declaration for @ref std::vector
+@m_since{2019,10}
 
 On @ref CORRADE_TARGET_LIBCXX "libc++" (3.9.0 and up) and
 @ref CORRADE_TARGET_LIBSTDCXX "libstdc++" (all versions) includes a lightweight
@@ -47,7 +48,8 @@ equivalent to @cpp #include <vector> @ce.
 
 @see @ref Corrade/Utility/StlForwardArray.h,
     @ref Corrade/Utility/StlForwardString.h,
-    @ref Corrade/Utility/StlForwardTuple.h
+    @ref Corrade/Utility/StlForwardTuple.h,
+    @ref Corrade/Utility/StlMath.h
 */
 
 #include "Corrade/configure.h"

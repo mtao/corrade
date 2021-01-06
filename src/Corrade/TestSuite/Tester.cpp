@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -29,13 +29,22 @@
 #include <algorithm>
 #include <iostream>
 #include <random>
+#include <sstream>
+#include <typeinfo>
 #include <utility>
 
 #include "Corrade/Containers/Array.h"
+#include "Corrade/Containers/ScopeGuard.h"
 #include "Corrade/TestSuite/Implementation/BenchmarkCounters.h"
 #include "Corrade/TestSuite/Implementation/BenchmarkStats.h"
 #include "Corrade/Utility/Arguments.h"
+#include "Corrade/Utility/Directory.h"
+#include "Corrade/Utility/FormatStl.h"
 #include "Corrade/Utility/String.h"
+
+#ifdef __linux__ /* for getting processor count */
+#include <unistd.h>
+#endif
 
 namespace Corrade { namespace TestSuite {
 
@@ -47,10 +56,17 @@ namespace {
     }
 
     constexpr const char PaddingString[] = "0000000000";
+
+    #ifdef __linux__
+    constexpr const char DefaultCpuScalingGovernorFile[] = "/sys/devices/system/cpu/cpu{}/cpufreq/scaling_governor";
+    #endif
 }
 
 struct Tester::TesterConfiguration::Data {
     std::vector<std::string> skippedArgumentPrefixes;
+    #ifdef __linux__
+    std::string cpuScalingGovernorFile = DefaultCpuScalingGovernorFile;
+    #endif
 };
 
 Tester::TesterConfiguration::TesterConfiguration() noexcept = default;
@@ -81,25 +97,56 @@ Tester::TesterConfiguration& Tester::TesterConfiguration::setSkippedArgumentPref
     return *this;
 }
 
+#ifdef __linux__
+std::string Tester::TesterConfiguration::cpuScalingGovernorFile() const {
+    return _data ? _data->cpuScalingGovernorFile : DefaultCpuScalingGovernorFile;
+}
+
+Tester::TesterConfiguration& Tester::TesterConfiguration::setCpuScalingGovernorFile(const std::string& filename) {
+    if(!_data) _data.reset(new Data);
+    _data->cpuScalingGovernorFile = filename;
+    return *this;
+}
+#endif
+
+struct Tester::IterationPrinter::IterationPrinter::Data {
+    std::ostringstream out;
+    IterationPrinter* parent;
+};
+
 struct Tester::TesterState {
     explicit TesterState(const TesterConfiguration& configuration): configuration{std::move(configuration)} {}
+
+    std::string formattedTestCaseName() const {
+        if(testCaseName.empty()) return "<unknown>";
+        if(testCaseTemplateName.empty()) return testCaseName;
+        return Utility::formatString("{}<{}>", testCaseName, testCaseTemplateName);
+    }
 
     Debug::Flags useColor;
     std::ostream *logOutput{}, *errorOutput{};
     std::vector<TestCase> testCases;
-    std::string testFilename, testName, testCaseName,
+    std::string testFilename, testName, testCaseName, testCaseTemplateName,
         testCaseDescription, benchmarkName;
-    std::size_t testCaseId{}, testCaseInstanceId{~std::size_t{}},
-        testCaseRepeatId{}, benchmarkBatchSize{}, testCaseLine{},
-        checkCount{};
+    std::size_t testCaseId{~std::size_t{}}, testCaseInstanceId{~std::size_t{}},
+        testCaseRepeatId{~std::size_t{}}, benchmarkBatchSize{}, testCaseLine{},
+        checkCount{}, diagnosticCount{};
 
     std::uint64_t benchmarkBegin{};
     std::uint64_t benchmarkResult{};
     TestCase* testCase{};
+    /* When there's one more bool, this should become flags instead. Right now
+       this only fill all holes in the struct layout. */
     bool expectedFailuresDisabled{};
+    bool verbose{};
+    bool testCaseLabelPrinted{};
+    bool isDebugBuild{};
     ExpectedFailure* expectedFailure{};
     std::string expectedFailureMessage;
+    IterationPrinter* iterationPrinter{};
     TesterConfiguration configuration;
+
+    std::string saveDiagnosticPath;
 };
 
 int* Tester::_argc = nullptr;
@@ -108,6 +155,12 @@ char** Tester::_argv = nullptr;
 void Tester::registerArguments(int& argc, char** const argv) {
     _argc = &argc;
     _argv = argv;
+}
+
+namespace {
+    /* Unlike with Debug not making this unique across static libs as I don't
+       expect any use case that would need this yet */
+    Tester* currentTester = nullptr;
 }
 
 Tester::Tester(const TesterConfiguration& configuration): _state{new TesterState{configuration}} {
@@ -120,9 +173,23 @@ Tester::~Tester() {
     _argv = nullptr;
 }
 
-int Tester::exec() { return exec(&std::cout, &std::cerr); }
+Tester& Tester::instance() {
+    CORRADE_ASSERT(currentTester, "TestSuite: attempting to call CORRADE_*() macros from outside a test case", *currentTester);
+    return *currentTester;
+}
 
-int Tester::exec(std::ostream* const logOutput, std::ostream* const errorOutput) {
+int Tester::exec() { return exec(nullptr, &std::cout, &std::cerr); }
+
+int Tester::exec(Tester* const previousTester, std::ostream* const logOutput, std::ostream* const errorOutput) {
+    /* Set up the global pointer for the time during which tests are run, then
+       reset it back again. The `previousTester` is needed for testing where
+       there *are* two nested Tester instances. */
+    CORRADE_ASSERT(currentTester == previousTester, "TestSuite::Tester: only one Tester instance can be active at a time", {});
+    currentTester = this;
+    Containers::ScopeGuard resetCurrentTester{previousTester, [](Tester* t) {
+        currentTester = t;
+    }};
+
     Utility::Arguments args;
     for(auto&& prefix: _state->configuration.skippedArgumentPrefixes())
         args.addSkippedPrefix(prefix);
@@ -144,14 +211,20 @@ int Tester::exec(std::ostream* const logOutput, std::ostream* const errorOutput)
             .setFromEnvironment("abort-on-fail", "CORRADE_TEST_ABORT_ON_FAIL")
         .addBooleanOption("no-xfail").setHelp("no-xfail", "disallow expected failures")
             .setFromEnvironment("no-xfail", "CORRADE_TEST_NO_XFAIL")
+        .addBooleanOption("no-catch").setHelp("no-catch", "don't catch standard exceptions")
+            .setFromEnvironment("no-catch", "CORRADE_TEST_NO_CATCH")
+        .addOption("save-diagnostic", "").setHelp("save-diagnostic", "save diagnostic files to given path", "PATH")
+            .setFromEnvironment("save-diagnostic", "CORRADE_TEST_SAVE_DIAGNOSTIC")
+        .addBooleanOption('v', "verbose").setHelp("verbose", "enable verbose output")
+            .setFromEnvironment("verbose", "CORRADE_TEST_VERBOSE")
         .addOption("benchmark", "wall-time").setHelp("benchmark", "default benchmark type", "TYPE")
-            .setFromEnvironment("benchmark", "CORRADE_BENCHMARK")
+            .setFromEnvironment("benchmark", "CORRADE_TEST_BENCHMARK")
         .addOption("benchmark-discard", "1").setHelp("benchmark-discard", "discard first N measurements of each benchmark", "N")
-            .setFromEnvironment("benchmark-discard", "CORRADE_BENCHMARK_DISCARD")
+            .setFromEnvironment("benchmark-discard", "CORRADE_TEST_BENCHMARK_DISCARD")
         .addOption("benchmark-yellow", "0.05").setHelp("benchmark-yellow", "deviation threshold for marking benchmark yellow", "N")
-            .setFromEnvironment("benchmark-yellow", "CORRADE_BENCHMARK_YELLOW")
+            .setFromEnvironment("benchmark-yellow", "CORRADE_TEST_BENCHMARK_YELLOW")
         .addOption("benchmark-red", "0.25").setHelp("benchmark-red", "deviation threshold for marking benchmark red", "N")
-            .setFromEnvironment("benchmark-red", "CORRADE_BENCHMARK_RED")
+            .setFromEnvironment("benchmark-red", "CORRADE_TEST_BENCHMARK_RED")
         .setGlobalHelp(R"(Corrade TestSuite executable. By default runs test cases in order in which they
 were added and exits with non-zero code if any of them failed. Supported
 benchmark types:
@@ -251,6 +324,10 @@ benchmark types:
     if(args.isSet("shuffle"))
         std::shuffle(usedTestCases.begin(), usedTestCases.end(), std::minstd_rand{std::random_device{}()});
 
+    /* Save the path for diagnostic files, if set; remember verbosity */
+    _state->saveDiagnosticPath = args.value("save-diagnostic");
+    _state->verbose = args.isSet("verbose");
+
     unsigned int errorCount = 0,
         noCheckCount = 0;
 
@@ -278,9 +355,46 @@ benchmark types:
 
     Debug(logOutput, _state->useColor) << Debug::boldColor(Debug::Color::Default) << "Starting" << _state->testName << "with" << usedTestCases.size() << "test cases...";
 
+    /* If we are running a benchmark, print helpful messages in case the
+       benchmark results might be skewed. Inspiration taken from:
+       https://github.com/google/benchmark/blob/0ae233ab23c560547bf85ce1346580966e799861/src/sysinfo.cc#L209-L224
+       I doubt the code there works on macOS, so enabling it for Linux only. */
+    for(std::pair<int, TestCase> testCase: usedTestCases) {
+        if(testCase.second.type == TestCaseType::Test) continue;
+
+        if(_state->verbose && _state->isDebugBuild) {
+            Debug(logOutput, _state->useColor) << Debug::boldColor(Debug::Color::White) << "  INFO" << Debug::resetColor << "Benchmarking a debug build.";
+        }
+        #ifdef __linux__
+        for(std::size_t i = 0, count = sysconf(_SC_NPROCESSORS_ONLN); i != count; ++i) {
+            const std::string file = Utility::formatString(_state->configuration.cpuScalingGovernorFile().data(), i);
+            if(!Utility::Directory::exists(file)) break;
+            const std::string governor = Utility::String::trim(Utility::Directory::readString(file));
+            if(governor != "performance") {
+                Warning out{errorOutput, _state->useColor};
+
+                out << Debug::boldColor(Debug::Color::Yellow) << "  WARN"
+                    << Debug::resetColor << "CPU" << governor
+                    << "scaling detected, benchmark measurements may be noisy.";
+                if(_state->verbose) out << "Use\n         sudo cpupower frequency-set --governor performance\n       to get more stable results.";
+                break;
+            }
+        }
+        #endif
+        break;
+    }
+
+    /* Ensure the test case IDs are valid only during the test run */
+    Containers::ScopeGuard testCaseIdReset{&*_state, [](TesterState* state) {
+        state->testCaseId = ~std::size_t{};
+        state->testCaseRepeatId = ~std::size_t{};
+        state->testCaseInstanceId = ~std::size_t{};
+    }};
+
+    bool abortedOnFail = false;
     for(std::pair<int, TestCase> testCase: usedTestCases) {
         /* Reset output to stdout for each test case to prevent debug
-            output segfaults */
+           output segfaults */
         /** @todo Drop this when Debug::setOutput() is removed */
         Debug resetDebugRedirect{&std::cout};
         Error resetErrorRedirect{&std::cerr};
@@ -295,7 +409,7 @@ benchmark types:
         switch(testCase.second.type) {
             /* LCOV_EXCL_START */
             case TestCaseType::DefaultBenchmark:
-                CORRADE_ASSERT_UNREACHABLE();
+                CORRADE_INTERNAL_ASSERT_UNREACHABLE();
             /* LCOV_EXCL_STOP */
 
             case TestCaseType::Test:
@@ -332,6 +446,7 @@ benchmark types:
 
         _state->testCaseId = testCase.first;
         _state->testCaseInstanceId = testCase.second.instanceId;
+        _state->testCaseLabelPrinted = false;
         if(testCase.second.instanceId == ~std::size_t{})
             _state->testCaseDescription = {};
         else
@@ -352,6 +467,7 @@ benchmark types:
             _state->testCaseRepeatId = repeatCount == 1 ? ~std::size_t{} : i;
             _state->testCaseLine = 0;
             _state->testCaseName.clear();
+            _state->testCaseTemplateName.clear();
             _state->testCase = &testCase.second;
             _state->benchmarkBatchSize = 0;
             _state->benchmarkResult = 0;
@@ -364,7 +480,26 @@ benchmark types:
             } catch(const SkipException&) {
                 aborted = true;
                 skipped = true;
+            } catch(const std::exception& e) {
+                /* Conditionally rethrow to let the standard exception abort
+                   the process -- useful for debugging */
+                if(args.isSet("no-catch")) throw;
+
+                ++errorCount;
+                aborted = true;
+                Error out{_state->errorOutput, _state->useColor};
+                printTestCaseLabel(out, " THROW", Debug::Color::Red,
+                    _state->testCaseLine ? Debug::Color::Default : Debug::Color::Yellow);
+                /* The file/line info is available but useless because the
+                   exception definitely doesn't come from there, thus not
+                   printing it. Also not doing ++noCheckCount because the
+                   checks could still be there, only after the exception
+                   happened. */
+                out << Debug::newline << "       " << typeid(e).name() << Debug::nospace << ":" << e.what();
             }
+
+            /* Not catching ... exceptions because those could obscure critical
+               problems: https://stackoverflow.com/a/2183971 */
 
             _state->testCase = nullptr;
 
@@ -373,6 +508,11 @@ benchmark types:
 
             if(testCase.second.benchmarkEnd)
                 measurements[i] = _state->benchmarkResult;
+
+            /* There shouldn't be any stale expected failure after the test
+               case exists. If this fires for user code, they did something
+               VERY WRONG. (Or I have a serious bug.) */
+            CORRADE_INTERNAL_ASSERT(!_state->expectedFailure);
         }
 
         /* Print success message if the test case wasn't failed/skipped */
@@ -383,17 +523,20 @@ benchmark types:
                 printTestCaseLabel(out, "     ?", Debug::Color::Yellow, Debug::Color::Yellow);
                 ++noCheckCount;
 
-            /* Test case or benchmark with expected failure inside */
-            } else if(testCase.second.type == TestCaseType::Test || _state->expectedFailure) {
-                Debug out{logOutput, _state->useColor};
-                printTestCaseLabel(out,
-                    _state->expectedFailure ? " XFAIL" : "    OK",
-                    _state->expectedFailure ? Debug::Color::Yellow : Debug::Color::Default,
-                    Debug::Color::Default);
-                if(_state->expectedFailure) out << Debug::newline << "       " << _state->expectedFailureMessage;
+            /* A successful test case. Print the OK only if there wasn't some
+               other message (INFO, WARN, XFAIL or SAVED) before, as it would
+               otherwise make the output confusing ("is it OK or WARN?!") */
+            } else if(testCase.second.type == TestCaseType::Test) {
+                if(!_state->testCaseLabelPrinted) {
+                    Debug out{logOutput, _state->useColor};
+                    printTestCaseLabel(out, "    OK", Debug::Color::Default, Debug::Color::Default);
+                }
 
             /* Benchmark. Completely custom printing. */
             } else {
+                /* All other types are benchmarks */
+                CORRADE_INTERNAL_ASSERT(testCase.second.type != TestCaseType::Test);
+
                 Debug out{logOutput, _state->useColor};
 
                 const char* padding = PaddingString + sizeof(PaddingString) - digitCount(_state->testCases.size()) + digitCount(_state->testCaseId) - 1;
@@ -416,8 +559,7 @@ benchmark types:
                 Implementation::printStats(out, mean, stddev, color, benchmarkUnits);
 
                 out << Debug::boldColor(Debug::Color::Default)
-                    << (_state->testCaseName.empty() ? "<unknown>" : _state->testCaseName)
-                    << Debug::nospace;
+                    << _state->formattedTestCaseName() << Debug::nospace;
 
                 /* Optional test case description */
                 if(!_state->testCaseDescription.empty()) {
@@ -439,32 +581,49 @@ benchmark types:
 
         /* Abort on first failure */
         } else if(args.isSet("abort-on-fail") && !skipped) {
-            Debug out{logOutput, _state->useColor};
-            out << Debug::boldColor(Debug::Color::Red) << "Aborted"
-                << Debug::boldColor(Debug::Color::Default) << _state->testName
-                << Debug::boldColor(Debug::Color::Red) << "after first failure"
-                << Debug::boldColor(Debug::Color::Default) << "out of"
-                << _state->checkCount << "checks so far.";
-            if(noCheckCount)
-                out << Debug::boldColor(Debug::Color::Yellow) << noCheckCount << "test cases didn't contain any checks!";
-
-            return 1;
+            abortedOnFail = true;
+            break;
         }
     }
 
-    Debug d(logOutput, _state->useColor);
-    d << Debug::boldColor(Debug::Color::Default) << "Finished" << _state->testName << "with";
-    if(errorCount) d << Debug::boldColor(Debug::Color::Red);
-    d << errorCount << "errors";
-    if(errorCount) d << Debug::boldColor(Debug::Color::Default);
-    d << "out of" << _state->checkCount << "checks.";
+    /* Print the final wrap-up */
+    Debug out(logOutput, _state->useColor);
+    if(abortedOnFail) {
+        out << Debug::boldColor(Debug::Color::Red) << "Aborted"
+            << Debug::boldColor(Debug::Color::Default) << _state->testName
+            << Debug::boldColor(Debug::Color::Red) << "after first failure"
+            << Debug::boldColor(Debug::Color::Default) << "out of"
+            << _state->checkCount << "checks so far.";
+    } else {
+        out << Debug::boldColor(Debug::Color::Default) << "Finished"
+            << _state->testName << "with";
+        if(errorCount) out << Debug::boldColor(Debug::Color::Red);
+        out << errorCount << "errors";
+        if(errorCount) out << Debug::boldColor(Debug::Color::Default);
+        out << "out of" << _state->checkCount << "checks.";
+    }
+    if(_state->diagnosticCount) {
+        /* If --save-diagnostic was not enabled but failed checks indicated
+           that they *could* save diagnostic files, hint that to the user. */
+        if(!_state->saveDiagnosticPath.empty()) {
+            out << Debug::boldColor(Debug::Color::Green) << _state->diagnosticCount
+                << "checks saved diagnostic files.";
+        } else {
+            out << Debug::boldColor(Debug::Color::Green) << _state->diagnosticCount
+                << "failed checks are able to save diagnostic files, enable "
+                   "--save-diagnostic to get them.";
+        }
+    }
     if(noCheckCount)
-        d << Debug::boldColor(Debug::Color::Yellow) << noCheckCount << "test cases didn't contain any checks!";
+        out << Debug::boldColor(Debug::Color::Yellow) << noCheckCount
+            << "test cases didn't contain any checks!";
 
     return errorCount != 0 || noCheckCount != 0;
 }
 
 void Tester::printTestCaseLabel(Debug& out, const char* const status, const Debug::Color statusColor, const Debug::Color labelColor) {
+    _state->testCaseLabelPrinted = true;
+
     const char* padding = PaddingString + sizeof(PaddingString) - digitCount(_state->testCases.size()) + digitCount(_state->testCaseId) - 1;
 
     out << Debug::boldColor(statusColor) << status
@@ -472,8 +631,7 @@ void Tester::printTestCaseLabel(Debug& out, const char* const status, const Debu
         << Debug::boldColor(Debug::Color::Cyan) << padding
         << Debug::nospace << _state->testCaseId << Debug::nospace
         << Debug::color(Debug::Color::Blue) << "]"
-        << Debug::boldColor(labelColor)
-        << (_state->testCaseName.empty() ? "<unknown>" : _state->testCaseName)
+        << Debug::boldColor(labelColor) << _state->formattedTestCaseName()
         << Debug::nospace;
 
     /* Optional test case description */
@@ -491,6 +649,24 @@ void Tester::printTestCaseLabel(Debug& out, const char* const status, const Debu
     out << Debug::resetColor;
 }
 
+void Tester::printFileLineInfo(Debug& out) {
+    out << "at" << _state->testFilename << Debug::nospace << ":" << Debug::nospace << _state->testCaseLine;
+
+    /* If we have checks annotated with an iteration macro, print those. These
+       are linked in reverse order so we have to reverse the vector before
+       printing. */
+    if(_state->iterationPrinter) {
+        std::vector<std::string> iterations;
+        for(IterationPrinter* iterationPrinter = _state->iterationPrinter; iterationPrinter; iterationPrinter = iterationPrinter->_data->parent) {
+            iterations.push_back(iterationPrinter->_data->out.str());
+        }
+        std::reverse(iterations.begin(), iterations.end());
+        out << "(iteration" << Utility::String::join(iterations, ", ") << Debug::nospace << ")";
+    }
+
+    out << Debug::newline;
+}
+
 void Tester::verifyInternal(const char* expression, bool expressionValue) {
     ++_state->checkCount;
 
@@ -500,49 +676,91 @@ void Tester::verifyInternal(const char* expression, bool expressionValue) {
     } else if(!expressionValue) {
         Debug out{_state->logOutput, _state->useColor};
         printTestCaseLabel(out, " XFAIL", Debug::Color::Yellow, Debug::Color::Default);
-        out << "at" << _state->testFilename << "on line" << _state->testCaseLine
-            << Debug::newline << "       " << _state->expectedFailureMessage
-            << "Expression" << expression << "failed.";
+        printFileLineInfo(out);
+        out << "       " << _state->expectedFailureMessage << "Expression"
+            << expression << "failed.";
         return;
     }
 
     /* Otherwise print message to error output and throw exception */
     Error out{_state->errorOutput, _state->useColor};
     printTestCaseLabel(out, _state->expectedFailure ? " XPASS" : "  FAIL", Debug::Color::Red, Debug::Color::Default);
-    out << "at" << _state->testFilename << "on line" << _state->testCaseLine
-        << Debug::newline << "        Expression" << expression;
+    printFileLineInfo(out);
+    out << "        Expression" << expression;
     if(!_state->expectedFailure) out << "failed.";
     else out << "was expected to fail.";
     throw Exception();
 }
 
-void Tester::printComparisonMessageInternal(bool equal, const char* actual, const char* expected, void(*printer)(void*, Error&, const char*, const char*), void* printerState) {
+void Tester::printComparisonMessageInternal(ComparisonStatusFlags flags, const char* actual, const char* expected, void(*printer)(void*, ComparisonStatusFlags, Debug&, const char*, const char*), void(*saver)(void*, ComparisonStatusFlags, Debug&, const std::string&), void* comparator) {
     ++_state->checkCount;
 
-    if(!_state->expectedFailure) {
-        if(equal) return;
-    } else if(!equal) {
+    /* If verbose output is not enabled, remove verbose stuff from comparison
+       status flags */
+    if(!_state->verbose) flags &= ~(ComparisonStatusFlag::Verbose|ComparisonStatusFlag::VerboseDiagnostic);
+
+    /* In case of an expected failure, print a static message */
+    if(_state->expectedFailure && (flags & ComparisonStatusFlag::Failed)) {
         Debug out{_state->logOutput, _state->useColor};
         printTestCaseLabel(out, " XFAIL", Debug::Color::Yellow, Debug::Color::Default);
-        out << "at" << _state->testFilename << "on line"
-            << _state->testCaseLine << Debug::newline << "       " << _state->expectedFailureMessage
-            << actual << "and" << expected << "failed the comparison.";
-        return;
+        printFileLineInfo(out);
+        out << "       " << _state->expectedFailureMessage << actual << "and"
+            << expected << "failed the comparison.";
+
+    /* Otherwise, in case of an unexpected failure or an unexpected pass, print
+       an error message */
+    } else if(bool(_state->expectedFailure) != bool(flags & ComparisonStatusFlag::Failed)) {
+        Error out{_state->errorOutput, _state->useColor};
+        printTestCaseLabel(out, _state->expectedFailure ? " XPASS" : "  FAIL", Debug::Color::Red, Debug::Color::Default);
+        printFileLineInfo(out);
+        out << "       ";
+        if(!_state->expectedFailure) printer(comparator, flags, out, actual, expected);
+        else out << actual << "and" << expected << "were expected to fail the comparison.";
+
+    /* Otherwise, if the comparison succeeded but the comparator wants to print
+       a message, let it do that as well */
+    /** @todo print also in case of XFAIL or XPASS? those currently get just a
+        static message and printer is never called */
+    } else if(flags & (ComparisonStatusFlag::Warning|ComparisonStatusFlag::Message|ComparisonStatusFlag::Verbose)) {
+        Debug out{_state->logOutput, _state->useColor};
+        printTestCaseLabel(out,
+            flags & ComparisonStatusFlag::Warning ? "  WARN" : "  INFO",
+            flags & ComparisonStatusFlag::Warning ? Debug::Color::Yellow : Debug::Color::Default,
+            Debug::Color::Default);
+        printFileLineInfo(out);
+        out << "       ";
+        printer(comparator, flags, out, actual, expected);
     }
 
-    /* Otherwise print message to error output and throw exception */
-    Error out{_state->errorOutput, _state->useColor};
-    printTestCaseLabel(out, _state->expectedFailure ? " XPASS" : "  FAIL", Debug::Color::Red, Debug::Color::Default);
-    out << "at" << _state->testFilename << "on line"
-        << _state->testCaseLine << Debug::newline << "       ";
-    if(!_state->expectedFailure) printer(printerState, out, actual, expected);
-    else out << actual << "and" << expected << "were expected to fail the comparison.";
-    throw Exception();
+    /* Save diagnostic file(s) if the comparator wants to, it's not
+       in an XFAIL (because XFAIL should be silent, OTOH XPASS should do the
+       same as FAIL), ... */
+    if((flags & (ComparisonStatusFlag::Diagnostic|ComparisonStatusFlag::VerboseDiagnostic)) && !(_state->expectedFailure && flags & ComparisonStatusFlag::Failed)) {
+        /* ... and the user allowed that. */
+        if(!_state->saveDiagnosticPath.empty()) {
+            CORRADE_ASSERT(saver, "TestSuite::Comparator: comparator returning ComparisonStatusFlag::[Verbose]Diagnostic has to implement saveDiagnostic() as well", );
+
+            Debug out{_state->logOutput, _state->useColor};
+            printTestCaseLabel(out, " SAVED", Debug::Color::Green, Debug::Color::Default);
+            saver(comparator, flags, out, _state->saveDiagnosticPath);
+            ++_state->diagnosticCount;
+
+        /* If the user didn't allow, count all failure diagnostics in order to
+           hint to the user that there's --save-diagnostic in the final output */
+        } else if(bool(_state->expectedFailure) != bool(flags & ComparisonStatusFlag::Failed)) {
+            ++_state->diagnosticCount;
+        }
+    }
+
+    /* Throw an exception if this is an error */
+    if(bool(_state->expectedFailure) != bool(flags & ComparisonStatusFlag::Failed))
+        throw Exception();
 }
 
-void Tester::registerTest(const char* filename, const char* name) {
+void Tester::registerTest(const char* filename, const char* name, bool isDebugBuild) {
     _state->testFilename = std::move(filename);
     if(_state->testName.empty()) _state->testName = std::move(name);
+    _state->isDebugBuild = isDebugBuild;
 }
 
 void Tester::skip(const char* message) {
@@ -556,9 +774,27 @@ void Tester::skip(const std::string& message) {
     throw SkipException();
 }
 
-std::size_t Tester::testCaseId() const { return _state->testCaseId; }
-std::size_t Tester::testCaseInstanceId() const { return _state->testCaseInstanceId; }
-std::size_t Tester::testCaseRepeatId() const { return _state->testCaseRepeatId; }
+std::size_t Tester::testCaseId() const {
+    CORRADE_ASSERT(_state->testCaseId != ~std::size_t{},
+        "TestSuite::Tester::testCaseId(): can be called only from within a test case", {});
+    return _state->testCaseId;
+}
+
+std::size_t Tester::testCaseInstanceId() const {
+    CORRADE_ASSERT(_state->testCaseInstanceId != ~std::size_t{},
+        "TestSuite::Tester::testCaseInstanceId(): can be called only from within an instanced test case", {});
+    return _state->testCaseInstanceId;
+}
+
+std::size_t Tester::testCaseRepeatId() const {
+    CORRADE_ASSERT(_state->testCaseRepeatId != ~std::size_t{},
+        "TestSuite::Tester::testCaseRepeatId(): can be called only from within a repeated test case", {});
+    return _state->testCaseRepeatId;
+}
+
+Containers::StringView Tester::testName() const {
+    return _state->testName;
+}
 
 void Tester::setTestName(const std::string& name) {
     _state->testName = name;
@@ -582,6 +818,26 @@ void Tester::setTestCaseName(std::string&& name) {
 
 void Tester::setTestCaseName(const char* name) {
     _state->testCaseName = name;
+}
+
+void Tester::setTestCaseTemplateName(const std::string& name) {
+    _state->testCaseTemplateName = name;
+}
+
+void Tester::setTestCaseTemplateName(std::string&& name) {
+    _state->testCaseTemplateName = std::move(name);
+}
+
+void Tester::setTestCaseTemplateName(const char* name) {
+    _state->testCaseTemplateName = name;
+}
+
+void Tester::setTestCaseTemplateName(const std::initializer_list<Containers::StringView> names) {
+    _state->testCaseTemplateName = Utility::String::join({names.begin(), names.end()}, ", ");
+}
+
+void Tester::setTestCaseTemplateName(const std::initializer_list<const char*> names) {
+    _state->testCaseTemplateName = Utility::String::join({names.begin(), names.end()}, ", ");
 }
 
 void Tester::setTestCaseDescription(const std::string& description) {
@@ -619,10 +875,10 @@ void Tester::registerTestCase(const char* name, int line) {
 Tester::BenchmarkRunner Tester::createBenchmarkRunner(const std::size_t batchSize) {
     CORRADE_ASSERT(_state->testCase,
         "TestSuite::Tester: using benchmark macros outside of test cases is not allowed",
-        (BenchmarkRunner{*this, nullptr, nullptr}));
+        (BenchmarkRunner{nullptr, nullptr}));
 
     _state->benchmarkBatchSize = batchSize;
-    return BenchmarkRunner{*this, _state->testCase->benchmarkBegin, _state->testCase->benchmarkEnd};
+    return BenchmarkRunner{_state->testCase->benchmarkBegin, _state->testCase->benchmarkEnd};
 }
 
 void Tester::wallTimeBenchmarkBegin() {
@@ -656,18 +912,37 @@ void Tester::addTestCaseInternal(const TestCase& testCase) {
     _state->testCases.push_back(testCase);
 }
 
-Tester::ExpectedFailure::ExpectedFailure(Tester& instance, std::string&& message, const bool enabled): _instance(instance) {
+Tester::ExpectedFailure::ExpectedFailure(std::string&& message, const bool enabled) {
+    Tester& instance = Tester::instance();
     if(!enabled || instance._state->expectedFailuresDisabled) return;
     instance._state->expectedFailureMessage = message;
     instance._state->expectedFailure = this;
 }
 
-Tester::ExpectedFailure::ExpectedFailure(Tester& instance, const std::string& message, const bool enabled): ExpectedFailure{instance, std::string{message}, enabled} {}
+Tester::ExpectedFailure::ExpectedFailure(const std::string& message, const bool enabled): ExpectedFailure{std::string{message}, enabled} {}
 
-Tester::ExpectedFailure::ExpectedFailure(Tester& instance, const char* message, const bool enabled): ExpectedFailure{instance, std::string{message}, enabled} {}
+Tester::ExpectedFailure::ExpectedFailure(const char* message, const bool enabled): ExpectedFailure{std::string{message}, enabled} {}
 
 Tester::ExpectedFailure::~ExpectedFailure() {
-    _instance._state->expectedFailure = nullptr;
+    instance()._state->expectedFailure = nullptr;
+}
+
+Tester::IterationPrinter::IterationPrinter() {
+    Tester& instance = Tester::instance();
+    /* Insert itself into the list of iteration printers */
+    _data.emplace().parent = instance._state->iterationPrinter;
+    instance._state->iterationPrinter = this;
+}
+
+Tester::IterationPrinter::~IterationPrinter() {
+    /* Remove itself from the list of iteration printers (assuming destruction
+       of those goes in inverse order) */
+    CORRADE_INTERNAL_ASSERT(instance()._state->iterationPrinter == this);
+    instance()._state->iterationPrinter = _data->parent;
+}
+
+Utility::Debug Tester::IterationPrinter::debug() {
+    return Debug{&_data->out, Debug::Flag::NoNewlineAtTheEnd};
 }
 
 Tester::BenchmarkRunner::~BenchmarkRunner() {

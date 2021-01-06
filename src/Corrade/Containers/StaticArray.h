@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 */
 
 /** @file
- * @brief Class @ref Corrade::Containers::StaticArray
+ * @brief Class @ref Corrade::Containers::StaticArray, alias @ref Corrade::Containers::Array2, @ref Corrade::Containers::Array3, @ref Corrade::Containers::Array4
  */
 
 #include <new>
@@ -36,6 +36,7 @@
 #include "Corrade/configure.h"
 #include "Corrade/Containers/ArrayView.h"
 #include "Corrade/Containers/Tags.h"
+#include "Corrade/Containers/constructHelpers.h"
 
 namespace Corrade { namespace Containers {
 
@@ -53,19 +54,23 @@ Usage example:
 
 @section Containers-StaticArray-initialization Array initialization
 
-The array is by default *default-initialized*, which means that trivial types
-are not initialized at all and default constructor is called on other types. It
+The array is by default *value-initialized*, which means that trivial types
+are zero-initialized and the default constructor is called on other types. It
 is possible to initialize the array in a different way using so-called *tags*:
 
--   @ref StaticArray(DefaultInitT) is equivalent to the implicit parameterless
-    constructor (useful when you want to make the choice appear explicit).
--   @ref StaticArray(InPlaceInitT, Args&&... args) is equivalent to the
-    implicit parameteric constructor (again useful when you want to make the
-    choice appear explicit). Same as @ref StaticArray(Args&&... args).
--   @ref StaticArray(ValueInitT) zero-initializes trivial types and calls
-    default constructor elsewhere.
+-   @ref StaticArray(DefaultInitT) leaves trivial types uninitialized
+    and calls the default constructor elsewhere. In other words,
+    @cpp T array[size] @ce.
+-   @ref StaticArray(ValueInitT) is equivalent to the implicit parameterless
+    constructor, zero-initializing trivial types and calling the default
+    constructor elsewhere. Useful when you want to make the choice appear
+    explicit. In other words, @cpp T array[size]{} @ce.
 -   @ref StaticArray(DirectInitT, Args&&... args) constructs every element of
-    the array using provided arguments.
+    the array using provided arguments. In other words,
+    @cpp T array[size]{T{args...}, T{args...}, …} @ce.
+-   @ref StaticArray(InPlaceInitT, Args&&... args) is equivalent to
+    @ref StaticArray(Args&&... args), again useful when you want to make the
+    choice appear explicit). In other words, @cpp T array[size]{args...} @ce.
 -   @ref StaticArray(NoInitT) does not initialize anything and you need to call
     the constructor on all elements manually using placement new,
     @ref std::uninitialized_copy() or similar. This is the dangerous option.
@@ -95,19 +100,19 @@ Owning array type               | ↭ | Non-owning view type
 
 @section Containers-StaticArray-stl STL compatibility
 
-On compilers that support C++2a and @cpp std::span @ce, implicit conversion of
-an @ref StaticArray to it is provided in @ref Corrade/Containers/ArrayViewStlSpan.h.
+On compilers that support C++2a and @ref std::span, implicit conversion of an
+@ref StaticArray to it is provided in @ref Corrade/Containers/ArrayViewStlSpan.h.
 The conversion is provided in a separate header to avoid unconditional
 @cpp #include <span> @ce, which significantly affects compile times. The
 following table lists allowed conversions:
 
 Corrade type                    | ↭ | STL type
 ------------------------------- | - | ---------------------
-@ref StaticArray "StaticArray<size, T>" | → | @cpp std::span<T, size> @ce <b></b>
-@ref StaticArray "StaticArray<size, T>" | → | @cpp std::span<const T, size> @ce <b></b>
-@ref StaticArray "const StaticArray<size, T>" | → | @cpp std::span<const T, size> @ce <b></b>
+@ref StaticArray "StaticArray<size, T>" | → | @ref std::span "std::span<T, size>"
+@ref StaticArray "StaticArray<size, T>" | → | @ref std::span "std::span<const T, size>"
+@ref StaticArray "const StaticArray<size, T>" | → | @ref std::span "std::span<const T, size>"
 
-There are some dangerous corner cases due to the way @cpp std::span @ce is
+There are some dangerous corner cases due to the way @ref std::span is
 designed, see @ref Containers-ArrayView-stl "ArrayView STL compatibility" for
 more information.
 
@@ -119,11 +124,18 @@ more information.
     library in the Magnum Singles repository for easier integration into your
     projects. See @ref corrade-singles for more information.
 
-@see @ref arrayCast(StaticArray<size, T>&), @ref Array
+@see @ref arrayCast(StaticArray<size, T>&), @ref Array,
+    @ref Array2, @ref Array3, @ref Array4
 */
 /* Underscore at the end to avoid conflict with member size(). It's ugly, but
    having count instead of size_ would make the naming horribly inconsistent. */
 template<std::size_t size_, class T> class StaticArray {
+    /* Ideally this could be derived from StaticArrayView<size_, T>, avoiding a
+       lot of redundant code, however I'm unable to find a way to add
+       const/non-const overloads of all slicing functions and also prevent
+       const StaticArray<size_, T>& from being sliced to a (mutable)
+       StaticArrayView<size_, T>. */
+
     public:
         enum: std::size_t {
             Size = size_    /**< Array size */
@@ -131,20 +143,20 @@ template<std::size_t size_, class T> class StaticArray {
         typedef T Type;     /**< @brief Element type */
 
         /**
-         * @brief Construct default-initialized array
+         * @brief Construct a default-initialized array
          *
          * Creates array of given size, the contents are default-initialized
-         * (i.e. builtin types are not initialized).
+         * (i.e., builtin types are not initialized).
          * @see @ref DefaultInit, @ref StaticArray(ValueInitT)
          */
-        explicit StaticArray(DefaultInitT): StaticArray{DefaultInit, std::integral_constant<bool, std::is_pod<T>::value>{}} {}
+        explicit StaticArray(DefaultInitT): StaticArray{DefaultInit, std::integral_constant<bool, std::is_standard_layout<T>::value && std::is_trivial<T>::value>{}} {}
 
         /**
-         * @brief Construct value-initialized array
+         * @brief Construct a value-initialized array
          *
          * Creates array of given size, the contents are value-initialized
-         * (i.e. builtin types are zero-initialized). For other than builtin
-         * types this is the same as @ref StaticArray().
+         * (i.e., builtin types are zero-initialized, default constructor
+         * called otherwise). This is the same as @ref StaticArray().
          *
          * Useful if you want to create an array of primitive types and set
          * them to zero.
@@ -153,7 +165,7 @@ template<std::size_t size_, class T> class StaticArray {
         explicit StaticArray(ValueInitT): _data{} {}
 
         /**
-         * @brief Construct the array without initializing its contents
+         * @brief Construct an array without initializing its contents
          *
          * Creates array of given size, the contents are *not* initialized.
          * Initialize the values using placement new.
@@ -167,7 +179,7 @@ template<std::size_t size_, class T> class StaticArray {
         explicit StaticArray(NoInitT) {}
 
         /**
-         * @brief Construct direct-initialized array
+         * @brief Construct a direct-initialized array
          *
          * Constructs the array using the @ref StaticArray(NoInitT) constructor
          * and then initializes each element with placement new using forwarded
@@ -177,7 +189,7 @@ template<std::size_t size_, class T> class StaticArray {
         template<class ...Args> explicit StaticArray(DirectInitT, Args&&... args);
 
         /**
-         * @brief Construct in-place-initialized array
+         * @brief Construct an in-place-initialized array
          *
          * The arguments are forwarded to the array constructor. Same as
          * @ref StaticArray(Args&&... args).
@@ -188,15 +200,15 @@ template<std::size_t size_, class T> class StaticArray {
         }
 
         /**
-         * @brief Construct default-initialized array
+         * @brief Construct a value-initialized array
          *
-         * Alias to @ref StaticArray(DefaultInitT).
-         * @see @ref StaticArray(ValueInitT)
+         * Alias to @ref StaticArray(ValueInitT).
+         * @see @ref StaticArray(DefaultInitT)
          */
-        explicit StaticArray(): StaticArray{DefaultInit} {}
+        explicit StaticArray(): StaticArray{ValueInit} {}
 
         /**
-         * @brief Construct in-place-initialized array
+         * @brief Construct an in-place-initialized array
          *
          * Alias to @ref StaticArray(InPlaceInitT, Args&&... args).
          * @see @ref StaticArray(DirectInitT, Args&&... args)
@@ -204,22 +216,22 @@ template<std::size_t size_, class T> class StaticArray {
         #ifdef DOXYGEN_GENERATING_OUTPUT
         template<class ...Args> /*implicit*/ StaticArray(Args&&... args);
         #else
-        template<class First, class ...Next> /*implicit*/ StaticArray(First&& first, Next&&... next): StaticArray{InPlaceInit, std::forward<First>(first), std::forward<Next>(next)...} {}
+        template<class First, class ...Next, class = typename std::enable_if<std::is_convertible<First&&, T>::value>::type> /*implicit*/ StaticArray(First&& first, Next&&... next): StaticArray{InPlaceInit, std::forward<First>(first), std::forward<Next>(next)...} {}
         #endif
 
-        /** @brief Copying is not allowed */
-        StaticArray(const StaticArray<size_, T>&) = delete;
+        /** @brief Copy constructor */
+        StaticArray(const StaticArray<size_, T>& other) noexcept(std::is_nothrow_copy_constructible<T>::value);
 
-        /** @brief Moving is not allowed */
-        StaticArray(StaticArray<size_, T>&&) = delete;
+        /** @brief Move constructor */
+        StaticArray(StaticArray<size_, T>&& other) noexcept(std::is_nothrow_move_constructible<T>::value);
 
         ~StaticArray();
 
-        /** @brief Copying is not allowed */
-        StaticArray<size_, T>& operator=(const StaticArray<size_, T>&) = delete;
+        /** @brief Copy assignment */
+        StaticArray<size_, T>& operator=(const StaticArray<size_, T>&) noexcept(std::is_nothrow_copy_constructible<T>::value);
 
-        /** @brief Moving is not allowed */
-        StaticArray<size_, T>& operator=(StaticArray<size_, T>&&) = delete;
+        /** @brief Move assignment */
+        StaticArray<size_, T>& operator=(StaticArray<size_, T>&&) noexcept(std::is_nothrow_move_constructible<T>::value);
 
         /* The following view conversion is *not* restricted to this& because
            that would break uses like `consume(foo());`, where `consume()`
@@ -308,7 +320,8 @@ template<std::size_t size_, class T> class StaticArray {
         /**
          * @brief Array slice
          *
-         * Equivalent to @ref ArrayView::slice().
+         * Equivalent to @ref StaticArrayView::slice(T*, T*) const and
+         * overloads.
          */
         ArrayView<T> slice(T* begin, T* end) {
             return ArrayView<T>(*this).slice(begin, end);
@@ -327,10 +340,9 @@ template<std::size_t size_, class T> class StaticArray {
         }
 
         /**
-         * @brief Fixed-size array slice
+         * @brief Static array slice
          *
-         * Both @cpp begin @ce and @cpp begin + viewSize @ce are expected to be
-         * in range.
+         * Equivalent to @ref StaticArrayView::slice(T*) const and overloads.
          */
         template<std::size_t viewSize> StaticArrayView<viewSize, T> slice(T* begin) {
             return ArrayView<T>(*this).template slice<viewSize>(begin);
@@ -349,9 +361,27 @@ template<std::size_t size_, class T> class StaticArray {
         }
 
         /**
+         * @brief Static array slice
+         * @m_since{2019,10}
+         *
+         * Equivalent to @ref StaticArrayView::slice() const.
+         */
+        template<std::size_t begin_, std::size_t end_> StaticArrayView<end_ - begin_, T> slice() {
+            return StaticArrayView<size_, T>(*this).template slice<begin_, end_>();
+        }
+
+        /**
+         * @overload
+         * @m_since{2019,10}
+         */
+        template<std::size_t begin_, std::size_t end_> StaticArrayView<end_ - begin_, const T> slice() const {
+            return StaticArrayView<size_, const T>(*this).template slice<begin_, end_>();
+        }
+
+        /**
          * @brief Array prefix
          *
-         * Equivalent to @ref ArrayView::prefix().
+         * Equivalent to @ref StaticArrayView::prefix(T*) const and overloads.
          */
         ArrayView<T> prefix(T* end) {
             return ArrayView<T>(*this).prefix(end);
@@ -372,8 +402,7 @@ template<std::size_t size_, class T> class StaticArray {
         /**
          * @brief Static array prefix
          *
-         * Expects (at compile-time) that @p viewSize is not larger than
-         * @ref Size.
+         * Equivalent to @ref StaticArrayView::prefix(T*) const and overloads.
          */
         template<std::size_t viewSize> StaticArrayView<viewSize, T> prefix();
         template<std::size_t viewSize> StaticArrayView<viewSize, const T> prefix() const; /**< @overload */
@@ -381,7 +410,7 @@ template<std::size_t size_, class T> class StaticArray {
         /**
          * @brief Array suffix
          *
-         * Equivalent to @ref ArrayView::suffix().
+         * Equivalent to @ref StaticArrayView::suffix(T*) const and overloads.
          */
         ArrayView<T> suffix(T* begin) {
             return ArrayView<T>(*this).suffix(begin);
@@ -397,6 +426,50 @@ template<std::size_t size_, class T> class StaticArray {
         /** @overload */
         ArrayView<const T> suffix(std::size_t begin) const {
             return ArrayView<const T>(*this).suffix(begin);
+        }
+
+        /**
+         * @brief Static array suffix
+         * @m_since{2019,10}
+         *
+         * Equivalent to @ref StaticArrayView::suffix() const.
+         */
+        template<std::size_t begin_> StaticArrayView<size_ - begin_, T> suffix() {
+            return StaticArrayView<size_, T>(*this).template suffix<begin_>();
+        }
+
+        /**
+         * @overload
+         * @m_since{2019,10}
+         */
+        template<std::size_t begin_> StaticArrayView<size_ - begin_, const T> suffix() const {
+            return StaticArrayView<size_, const T>(*this).template suffix<begin_>();
+        }
+
+        /**
+         * @brief Array prefix except the last @p count items
+         *
+         * Equivalent to @ref StaticArrayView::except(std::size_t) const.
+         */
+        ArrayView<T> except(std::size_t count) {
+            return ArrayView<T>(*this).except(count);
+        }
+        /** @overload */
+        ArrayView<const T> except(std::size_t count) const {
+            return ArrayView<const T>(*this).except(count);
+        }
+
+        /**
+         * @brief Static array prefix except the last @p count items
+         *
+         * Equivalent to @ref StaticArrayView::except() const.
+         */
+        template<std::size_t count> StaticArrayView<size_ - count, T> except() {
+            return StaticArrayView<size_, T>(*this).template except<count>();
+        }
+        /** @overload */
+        template<std::size_t count> StaticArrayView<size_ - count, const T> except() const {
+            return StaticArrayView<size_, const T>(*this).template except<count>();
         }
 
     private:
@@ -416,6 +489,53 @@ template<std::size_t size_, class T> class StaticArray {
             T _data[size_];
         };
 };
+
+#ifndef CORRADE_MSVC2015_COMPATIBILITY /* Multiple definitions still broken */
+/**
+@brief One-component array
+@m_since_latest
+
+Convenience alternative to @cpp StaticArray<1, T> @ce. See @ref StaticArray for
+more information. Useful in case you want to take advantage of the @ref NoInit
+tag on an arbitrary type and @ref Optional doesn't suit the use case.
+@see @ref Array2, @ref Array3, @ref Array4, @ref ArrayView2, @ref ArrayView3,
+    @ref ArrayView4
+*/
+template<class T> using Array1 = StaticArray<1, T>;
+
+/**
+@brief Two-component array
+@m_since_latest
+
+Convenience alternative to @cpp StaticArray<2, T> @ce. See @ref StaticArray for
+more information.
+@see @ref Array1, @ref Array3, @ref Array4, @ref ArrayView2, @ref ArrayView3,
+    @ref ArrayView4
+*/
+template<class T> using Array2 = StaticArray<2, T>;
+
+/**
+@brief Three-component array
+@m_since_latest
+
+Convenience alternative to @cpp StaticArray<3, T> @ce. See @ref StaticArray for
+more information.
+@see @ref Array1, @ref Array2, @ref Array4, @ref ArrayView2, @ref ArrayView3,
+    @ref ArrayView4
+*/
+template<class T> using Array3 = StaticArray<3, T>;
+
+/**
+@brief Four-component array
+@m_since_latest
+
+Convenience alternative to @cpp StaticArray<4, T> @ce. See @ref StaticArray for
+more information.
+@see @ref Array1, @ref Array2, @ref Array3, @ref ArrayView2, @ref ArrayView3,
+    @ref ArrayView4
+*/
+template<class T> using Array4 = StaticArray<4, T>;
+#endif
 
 /** @relatesalso StaticArray
 @brief Make view on @ref StaticArray
@@ -493,14 +613,55 @@ template<std::size_t size_, class T> constexpr std::size_t arraySize(const Stati
 }
 
 template<std::size_t size_, class T> template<class ...Args> StaticArray<size_, T>::StaticArray(DirectInitT, Args&&... args): StaticArray{NoInit} {
-    for(T& i: _data) {
-        /* MSVC 2015 needs the braces around */
-        new(&i) T{std::forward<Args>(args)...};
-    }
+    for(T& i: _data)
+        /* This works around a featurebug in C++ where new T{} doesn't work for
+           an explicit defaulted constructor. Additionally it works around GCC
+           4.8 bugs where copy/move construction can't be done with {} for
+           plain structs. */
+        Implementation::construct(i, std::forward<Args>(args)...);
+}
+
+template<std::size_t size_, class T> StaticArray<size_, T>::StaticArray(const StaticArray<size_, T>& other) noexcept(std::is_nothrow_copy_constructible<T>::value): StaticArray{NoInit} {
+    for(std::size_t i = 0; i != other.size(); ++i)
+        /* Can't use {}, see the GCC 4.8-specific overload for details */
+        #if defined(CORRADE_TARGET_GCC) && !defined(CORRADE_TARGET_CLANG) && __GNUC__ < 5
+        Implementation::construct(_data[i], other._data[i]);
+        #else
+        new(_data + i) T{other._data[i]};
+        #endif
+}
+
+template<std::size_t size_, class T> StaticArray<size_, T>::StaticArray(StaticArray<size_, T>&& other) noexcept(std::is_nothrow_move_constructible<T>::value): StaticArray{NoInit} {
+    for(std::size_t i = 0; i != other.size(); ++i)
+        /* Can't use {}, see the GCC 4.8-specific overload for details */
+        #if defined(CORRADE_TARGET_GCC) && !defined(CORRADE_TARGET_CLANG) && __GNUC__ < 5
+        Implementation::construct(_data[i], std::move(other._data[i]));
+        #else
+        new(&_data[i]) T{std::move(other._data[i])};
+        #endif
 }
 
 template<std::size_t size_, class T> StaticArray<size_, T>::~StaticArray() {
-    for(T& i: _data) i.~T();
+    for(T& i: _data) {
+        i.~T();
+        #ifdef CORRADE_MSVC2015_COMPATIBILITY
+        /* Complains i is set but not used for trivially destructible types */
+        static_cast<void>(i);
+        #endif
+    }
+}
+
+template<std::size_t size_, class T> StaticArray<size_, T>& StaticArray<size_, T>::operator=(const StaticArray<size_, T>& other) noexcept(std::is_nothrow_copy_constructible<T>::value) {
+    for(std::size_t i = 0; i != other.size(); ++i)
+        _data[i] = other._data[i];
+    return *this;
+}
+
+template<std::size_t size_, class T> StaticArray<size_, T>& StaticArray<size_, T>::operator=(StaticArray<size_, T>&& other) noexcept(std::is_nothrow_move_constructible<T>::value) {
+    using std::swap;
+    for(std::size_t i = 0; i != other.size(); ++i)
+        swap(_data[i], other._data[i]);
+    return *this;
 }
 
 template<std::size_t size_, class T> template<std::size_t viewSize> StaticArrayView<viewSize, T> StaticArray<size_, T>::prefix() {

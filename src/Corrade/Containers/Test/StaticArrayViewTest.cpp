@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -90,8 +90,6 @@ struct StaticArrayViewTest: TestSuite::Tester {
     void convertBool();
     void convertPointer();
     void convertConst();
-    void convertVoid();
-    void convertConstVoid();
     void convertExternalView();
     void convertConstFromExternalView();
     void convertToConstExternalView();
@@ -126,8 +124,6 @@ StaticArrayViewTest::StaticArrayViewTest() {
               &StaticArrayViewTest::convertBool,
               &StaticArrayViewTest::convertPointer,
               &StaticArrayViewTest::convertConst,
-              &StaticArrayViewTest::convertVoid,
-              &StaticArrayViewTest::convertConstVoid,
               &StaticArrayViewTest::convertExternalView,
               &StaticArrayViewTest::convertConstFromExternalView,
               &StaticArrayViewTest::convertToConstExternalView,
@@ -282,7 +278,8 @@ void StaticArrayViewTest::convertBool() {
     constexpr bool boolCc = !!cc;
     CORRADE_VERIFY(!boolCc);
 
-    CORRADE_VERIFY(!(std::is_convertible<StaticArrayView<5>, int>::value));
+    CORRADE_VERIFY((std::is_constructible<bool, StaticArrayView<5>>::value));
+    CORRADE_VERIFY(!(std::is_constructible<int, StaticArrayView<5>>::value));
 }
 
 void StaticArrayViewTest::convertPointer() {
@@ -312,42 +309,6 @@ void StaticArrayViewTest::convertConst() {
     CORRADE_VERIFY(c == a);
 }
 
-void StaticArrayViewTest::convertVoid() {
-    int a[] = {3, 4, 7, 12, 0, -15};
-
-    /* void reference to ArrayView */
-    StaticArrayView<6> b = a;
-    const StaticArrayView<6> cb = a;
-    VoidArrayView c = b;
-    VoidArrayView cc = cb;
-    CORRADE_VERIFY(c == b);
-    CORRADE_VERIFY(cc == cb);
-    CORRADE_COMPARE(c.size(), 6*sizeof(int));
-    CORRADE_COMPARE(cc.size(), 6*sizeof(int));
-
-    /** @todo constexpr but not const? c++14? */
-}
-
-void StaticArrayViewTest::convertConstVoid() {
-    int a[] = {3, 4, 7, 12, 0, -15};
-
-    /* void reference to ArrayView */
-    StaticArrayView<6> b = a;
-    const StaticArrayView<6> cb = a;
-    ConstVoidArrayView c = b;
-    ConstVoidArrayView cc = cb;
-    CORRADE_VERIFY(c == b);
-    CORRADE_VERIFY(cc == cb);
-    CORRADE_COMPARE(c.size(), 6*sizeof(int));
-    CORRADE_COMPARE(cc.size(), 6*sizeof(int));
-
-    /* void reference to ArrayView */
-    constexpr ConstStaticArrayView<13> ccb = Array13;
-    ConstVoidArrayView ccc = ccb;
-    CORRADE_VERIFY(ccc == ccb);
-    CORRADE_COMPARE(ccc.size(), 13*sizeof(int));
-}
-
 void StaticArrayViewTest::convertExternalView() {
     const int data[]{1, 2, 3, 4, 5};
     ConstIntView5 a{data};
@@ -370,7 +331,7 @@ void StaticArrayViewTest::convertExternalView() {
 
     /* Broken on Clang 3.8-svn on Apple. The same works with stock Clang 3.8
        (Travis ASan build). ¯\_(ツ)_/¯ */
-    #if defined(CORRADE_TARGET_APPLE) && __clang_major__*100 + __clang_minor__ > 703
+    #if !defined(CORRADE_TARGET_APPLE_CLANG) || __clang_major__*100 + __clang_minor__ > 703
     constexpr
     #endif
     ConstStaticArrayView<5> cb = ca;
@@ -379,7 +340,7 @@ void StaticArrayViewTest::convertExternalView() {
 
     /* Broken on Clang 3.8-svn on Apple. The same works with stock Clang 3.8
        (Travis ASan build). ¯\_(ツ)_/¯ */
-    #if defined(CORRADE_TARGET_APPLE) && __clang_major__*100 + __clang_minor__ > 703
+    #if !defined(CORRADE_TARGET_APPLE_CLANG) || __clang_major__*100 + __clang_minor__ > 703
     constexpr
     #endif
     ConstIntView5 cc = cb;
@@ -387,7 +348,7 @@ void StaticArrayViewTest::convertExternalView() {
 
     /* Broken on Clang 3.8-svn on Apple. The same works with stock Clang 3.8
        (Travis ASan build). ¯\_(ツ)_/¯ */
-    #if defined(CORRADE_TARGET_APPLE) && __clang_major__*100 + __clang_minor__ > 703
+    #if !defined(CORRADE_TARGET_APPLE_CLANG) || __clang_major__*100 + __clang_minor__ > 703
     constexpr
     #else
     const
@@ -524,11 +485,17 @@ void StaticArrayViewTest::slice() {
     CORRADE_COMPARE(b[1], 3);
     CORRADE_COMPARE(b[2], 4);
 
-    ArrayView c = a.prefix(3);
-    CORRADE_COMPARE(c.size(), 3);
-    CORRADE_COMPARE(c[0], 1);
-    CORRADE_COMPARE(c[1], 2);
-    CORRADE_COMPARE(c[2], 3);
+    ArrayView c1 = a.prefix(3);
+    CORRADE_COMPARE(c1.size(), 3);
+    CORRADE_COMPARE(c1[0], 1);
+    CORRADE_COMPARE(c1[1], 2);
+    CORRADE_COMPARE(c1[2], 3);
+
+    ArrayView c2 = a.except(2);
+    CORRADE_COMPARE(c2.size(), 3);
+    CORRADE_COMPARE(c2[0], 1);
+    CORRADE_COMPARE(c2[1], 2);
+    CORRADE_COMPARE(c2[2], 3);
 
     ArrayView d = a.suffix(2);
     CORRADE_COMPARE(d.size(), 3);
@@ -543,11 +510,17 @@ void StaticArrayViewTest::slice() {
     CORRADE_COMPARE(cb[1], 3);
     CORRADE_COMPARE(cb[2], 4);
 
-    constexpr ConstArrayView cc = ca.prefix(3);
-    CORRADE_COMPARE(cc.size(), 3);
-    CORRADE_COMPARE(cc[0], 1);
-    CORRADE_COMPARE(cc[1], 2);
-    CORRADE_COMPARE(cc[2], 3);
+    constexpr ConstArrayView cc1 = ca.prefix(3);
+    CORRADE_COMPARE(cc1.size(), 3);
+    CORRADE_COMPARE(cc1[0], 1);
+    CORRADE_COMPARE(cc1[1], 2);
+    CORRADE_COMPARE(cc1[2], 3);
+
+    constexpr ConstArrayView cc2 = ca.except(2);
+    CORRADE_COMPARE(cc2.size(), 3);
+    CORRADE_COMPARE(cc2[0], 1);
+    CORRADE_COMPARE(cc2[1], 2);
+    CORRADE_COMPARE(cc2[2], 3);
 
     constexpr ConstArrayView cd = ca.suffix(2);
     CORRADE_COMPARE(cd.size(), 3);
@@ -613,15 +586,25 @@ void StaticArrayViewTest::sliceToStatic() {
     int data[5] = {1, 2, 3, 4, 5};
     StaticArrayView<5> a = data;
 
-    StaticArrayView<3> b = a.slice<3>(1);
-    CORRADE_COMPARE(b[0], 2);
-    CORRADE_COMPARE(b[1], 3);
-    CORRADE_COMPARE(b[2], 4);
+    StaticArrayView<3> b1 = a.slice<3>(1);
+    CORRADE_COMPARE(b1[0], 2);
+    CORRADE_COMPARE(b1[1], 3);
+    CORRADE_COMPARE(b1[2], 4);
 
-    StaticArrayView<3> c = a.prefix<3>();
-    CORRADE_COMPARE(c[0], 1);
-    CORRADE_COMPARE(c[1], 2);
-    CORRADE_COMPARE(c[2], 3);
+    StaticArrayView<3> b2 = a.slice<1, 4>();
+    CORRADE_COMPARE(b2[0], 2);
+    CORRADE_COMPARE(b2[1], 3);
+    CORRADE_COMPARE(b2[2], 4);
+
+    StaticArrayView<3> c1 = a.prefix<3>();
+    CORRADE_COMPARE(c1[0], 1);
+    CORRADE_COMPARE(c1[1], 2);
+    CORRADE_COMPARE(c1[2], 3);
+
+    StaticArrayView<3> c2 = a.except<2>();
+    CORRADE_COMPARE(c2[0], 1);
+    CORRADE_COMPARE(c2[1], 2);
+    CORRADE_COMPARE(c2[2], 3);
 
     StaticArrayView<3> d = a.suffix<2>();
     CORRADE_COMPARE(d[0], 3);
@@ -633,16 +616,26 @@ void StaticArrayViewTest::sliceToStatic() {
        pointer arithmetic on _data inside the assert. Note that the below
        works, as there's no runtime assertion. */
     #ifndef CORRADE_MSVC2015_COMPATIBILITY
-    constexpr ConstStaticArrayView<3> cb = ca.slice<3>(1);
-    CORRADE_COMPARE(cb[0], 2);
-    CORRADE_COMPARE(cb[1], 3);
-    CORRADE_COMPARE(cb[2], 4);
+    constexpr ConstStaticArrayView<3> cb1 = ca.slice<3>(1);
+    CORRADE_COMPARE(cb1[0], 2);
+    CORRADE_COMPARE(cb1[1], 3);
+    CORRADE_COMPARE(cb1[2], 4);
     #endif
 
-    constexpr ConstStaticArrayView<3> cc = ca.prefix<3>();
-    CORRADE_COMPARE(cc[0], 1);
-    CORRADE_COMPARE(cc[1], 2);
-    CORRADE_COMPARE(cc[2], 3);
+    constexpr ConstStaticArrayView<3> cb2 = ca.slice<1, 4>();
+    CORRADE_COMPARE(cb2[0], 2);
+    CORRADE_COMPARE(cb2[1], 3);
+    CORRADE_COMPARE(cb2[2], 4);
+
+    constexpr ConstStaticArrayView<3> cc1 = ca.prefix<3>();
+    CORRADE_COMPARE(cc1[0], 1);
+    CORRADE_COMPARE(cc1[1], 2);
+    CORRADE_COMPARE(cc1[2], 3);
+
+    constexpr ConstStaticArrayView<3> cc2 = ca.except<2>();
+    CORRADE_COMPARE(cc2[0], 1);
+    CORRADE_COMPARE(cc2[1], 2);
+    CORRADE_COMPARE(cc2[2], 3);
 
     constexpr ConstStaticArrayView<3> cd = ca.suffix<2>();
     CORRADE_COMPARE(cd[0], 3);

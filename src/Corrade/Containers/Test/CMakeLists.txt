@@ -2,7 +2,7 @@
 #   This file is part of Corrade.
 #
 #   Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-#               2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+#               2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a
 #   copy of this software and associated documentation files (the "Software"),
@@ -24,20 +24,43 @@
 #
 
 corrade_add_test(ContainersArrayTest ArrayTest.cpp)
+corrade_add_test(ContainersArrayTupleTest ArrayTupleTest.cpp LIBRARIES CorradeUtilityTestLib)
 corrade_add_test(ContainersArrayViewTest ArrayViewTest.cpp)
 corrade_add_test(ContainersArrayViewStlTest ArrayViewStlTest.cpp)
+corrade_add_test(ContainersBigEnumSetTest BigEnumSetTest.cpp)
 corrade_add_test(ContainersEnumSetTest EnumSetTest.cpp)
+
+corrade_add_test(ContainersGrowableArrayTest GrowableArrayTest.cpp)
+if(CORRADE_TARGET_EMSCRIPTEN)
+    # We need to append to avoid overwriting -s DISABLE_EXCEPTION_CATCHING=0
+    # TODO: somehow, for std::vector the available memory is enough?
+    set_property(TARGET ContainersGrowableArrayTest APPEND_STRING PROPERTY LINK_FLAGS " -s ALLOW_MEMORY_GROWTH=1")
+endif()
+corrade_add_test(ContainersGrowableArraySani___FailTest GrowableArraySanitizerFailTest.cpp)
+# Not matching with the -f, as MSVC might use either /f or -f. Source:
+# https://devblogs.microsoft.com/cppblog/addresssanitizer-asan-for-windows-with-msvc/
+if(CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
+    set_tests_properties(ContainersGrowableArraySani___FailTest PROPERTIES
+        PASS_REGULAR_EXPRESSION "AddressSanitizer: container-overflow")
+endif()
+
 corrade_add_test(ContainersLinkedListTest LinkedListTest.cpp)
 corrade_add_test(ContainersOptionalTest OptionalTest.cpp)
 corrade_add_test(ContainersPointerTest PointerTest.cpp)
 corrade_add_test(ContainersPointerStlTest PointerStlTest.cpp)
+corrade_add_test(ContainersRawForwardListTest RawForwardListTest.cpp)
 corrade_add_test(ContainersReferenceTest ReferenceTest.cpp)
 corrade_add_test(ContainersReferenceStlTest ReferenceStlTest.cpp)
+corrade_add_test(ContainersSequenceHelpersTest SequenceHelpersTest.cpp)
 corrade_add_test(ContainersScopeGuardTest ScopeGuardTest.cpp)
 corrade_add_test(ContainersStaticArrayTest StaticArrayTest.cpp)
 corrade_add_test(ContainersStaticArrayViewTest StaticArrayViewTest.cpp)
 corrade_add_test(ContainersStaticArrayViewStlTest StaticArrayViewStlTest.cpp)
 corrade_add_test(ContainersStridedArrayViewTest StridedArrayViewTest.cpp)
+corrade_add_test(ContainersStringTest StringTest.cpp LIBRARIES CorradeUtilityTestLib)
+corrade_add_test(ContainersStringStlTest StringStlTest.cpp)
+corrade_add_test(ContainersStringViewTest StringViewTest.cpp LIBRARIES CorradeUtilityTestLib)
+corrade_add_test(ContainersStringViewStlTest StringViewStlTest.cpp)
 corrade_add_test(ContainersTagsTest TagsTest.cpp)
 
 set_property(TARGET
@@ -45,25 +68,36 @@ set_property(TARGET
     ContainersArrayTest
     ContainersArrayViewTest
     ContainersArrayViewStlTest
+    ContainersBigEnumSetTest
+    ContainersGrowableArrayTest
     ContainersOptionalTest
     ContainersPointerTest
     ContainersStaticArrayViewTest
     ContainersStridedArrayViewTest
+    ContainersStringTest
+    ContainersStringViewTest
     APPEND PROPERTY COMPILE_DEFINITIONS "CORRADE_GRACEFUL_ASSERT")
 
 set_target_properties(
     ContainersArrayTest
+    ContainersArrayTupleTest
     ContainersArrayViewTest
+    ContainersBigEnumSetTest
     ContainersEnumSetTest
     ContainersLinkedListTest
     ContainersPointerTest
     ContainersPointerStlTest
+    ContainersRawForwardListTest
     ContainersReferenceTest
     ContainersReferenceStlTest
     ContainersScopeGuardTest
     ContainersStaticArrayTest
     ContainersStaticArrayViewTest
     ContainersStridedArrayViewTest
+    ContainersStringTest
+    ContainersStringStlTest
+    ContainersStringViewTest
+    ContainersStringViewStlTest
     ContainersTagsTest
     PROPERTIES FOLDER "Corrade/Containers/Test")
 

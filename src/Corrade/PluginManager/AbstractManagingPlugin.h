@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -53,6 +53,23 @@ template<class Interface> class AbstractManagingPlugin: public AbstractPlugin {
          */
         explicit AbstractManagingPlugin() = default;
 
+        /** @brief Copying is not allowed */
+        AbstractManagingPlugin(const AbstractManagingPlugin<Interface>&) = delete;
+
+        /**
+         * @brief Move constructor
+         *
+         * Destructive move. See @ref AbstractPlugin::AbstractPlugin(AbstractPlugin&&)
+         * for more information.
+         */
+        AbstractManagingPlugin(AbstractManagingPlugin<Interface>&& other) noexcept = default;
+
+        /** @brief Copying is not allowed */
+        AbstractManagingPlugin<Interface>& operator=(const AbstractManagingPlugin<Interface>&) = delete;
+
+        /** @brief Only move construction is allowed */
+        AbstractManagingPlugin<Interface>& operator=(AbstractManagingPlugin<Interface>&&) = delete;
+
         /**
          * @brief Default constructor with access to plugin manager
          *
@@ -80,6 +97,8 @@ template<class Interface> class AbstractManagingPlugin: public AbstractPlugin {
          *
          * Manager associated to given plugin. If the plugin was not
          * instantiated with access to plugin manager, returns @cpp nullptr @ce.
+         *
+         * Can't be called on a moved-out instance.
          */
         Manager<Interface>* manager() {
             return static_cast<Manager<Interface>*>(AbstractPlugin::manager());

@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -35,23 +35,33 @@ struct StaticArrayViewStlSpanTest: TestSuite::Tester {
 
     void convertFromSpan();
     void convertToSpan();
+    void convertToSpanEmpty();
     void convertConstFromSpan();
     void convertToConstSpan();
+    void convertToConstSpanEmpty();
 
     void convertSpanSized();
+    void convertSpanSizedEmpty();
     void convertConstFromSpanSized();
+    void convertConstFromSpanSizedEmpty();
     void convertToConstSpanSized();
+    void convertToConstSpanSizedEmpty();
 };
 
 StaticArrayViewStlSpanTest::StaticArrayViewStlSpanTest() {
     addTests({&StaticArrayViewStlSpanTest::convertFromSpan,
               &StaticArrayViewStlSpanTest::convertToSpan,
+              &StaticArrayViewStlSpanTest::convertToSpanEmpty,
               &StaticArrayViewStlSpanTest::convertConstFromSpan,
               &StaticArrayViewStlSpanTest::convertToConstSpan,
+              &StaticArrayViewStlSpanTest::convertToConstSpanEmpty,
 
               &StaticArrayViewStlSpanTest::convertSpanSized,
+              &StaticArrayViewStlSpanTest::convertSpanSizedEmpty,
               &StaticArrayViewStlSpanTest::convertConstFromSpanSized,
-              &StaticArrayViewStlSpanTest::convertToConstSpanSized});
+              &StaticArrayViewStlSpanTest::convertConstFromSpanSizedEmpty,
+              &StaticArrayViewStlSpanTest::convertToConstSpanSized,
+              &StaticArrayViewStlSpanTest::convertToConstSpanSizedEmpty});
 }
 
 void StaticArrayViewStlSpanTest::convertFromSpan() {
@@ -92,9 +102,13 @@ void StaticArrayViewStlSpanTest::convertToSpan() {
 
     /* Because we're using builtin std::span conversion constructor here, check
        that conversion to a different type is correctly not allowed */
-    CORRADE_VERIFY((std::is_convertible<Containers::StaticArrayView<5, int>, std::span<int>>::value));
-    CORRADE_VERIFY(!(std::is_convertible<Containers::StaticArrayView<5, int>, std::span<float>>::value));
+    CORRADE_VERIFY((std::is_convertible<const Containers::StaticArrayView<5, int>&, std::span<int>>::value));
+    CORRADE_VERIFY(!(std::is_convertible<const Containers::StaticArrayView<5, int>&, std::span<float>>::value));
     #endif
+}
+
+void StaticArrayViewStlSpanTest::convertToSpanEmpty() {
+    CORRADE_SKIP("Zero-sized StaticArrayView is not implemented yet.");
 }
 
 void StaticArrayViewStlSpanTest::convertConstFromSpan() {
@@ -125,6 +139,10 @@ void StaticArrayViewStlSpanTest::convertToConstSpan() {
     CORRADE_VERIFY((std::is_convertible<Containers::StaticArrayView<5, int>, std::span<const int>>::value));
     CORRADE_VERIFY(!(std::is_convertible<Containers::StaticArrayView<5, int>, std::span<const float>>::value));
     #endif
+}
+
+void StaticArrayViewStlSpanTest::convertToConstSpanEmpty() {
+    CORRADE_SKIP("Zero-sized StaticArrayView is not implemented yet.");
 }
 
 void StaticArrayViewStlSpanTest::convertSpanSized() {
@@ -175,11 +193,17 @@ void StaticArrayViewStlSpanTest::convertSpanSized() {
        that conversion to a different size or type is correctly not allowed */
     CORRADE_VERIFY((std::is_convertible<Containers::StaticArrayView<5, int>, std::span<int, 5>>::value));
     {
-        CORRADE_EXPECT_FAIL("The implicit all-catching span(Container&) constructor causes this to be an UB instead of giving me a possibility to catch this at compile time. Beyond stupid.");
+        #if defined(CORRADE_TARGET_LIBCXX) && _LIBCPP_VERSION < 9000
+        CORRADE_EXPECT_FAIL("The implicit all-catching span(Container&) constructor in libc++ < 9 causes this to be an UB instead of giving me a possibility to catch this at compile time.");
+        #endif
         CORRADE_VERIFY(!(std::is_convertible<Containers::StaticArrayView<5, int>, std::span<int, 6>>::value));
     }
     CORRADE_VERIFY(!(std::is_convertible<Containers::StaticArrayView<5, int>, std::span<float, 5>>::value));
     #endif
+}
+
+void StaticArrayViewStlSpanTest::convertSpanSizedEmpty() {
+    CORRADE_SKIP("Zero-sized StaticArrayView is not implemented yet.");
 }
 
 void StaticArrayViewStlSpanTest::convertConstFromSpanSized() {
@@ -202,6 +226,10 @@ void StaticArrayViewStlSpanTest::convertConstFromSpanSized() {
     #endif
 }
 
+void StaticArrayViewStlSpanTest::convertConstFromSpanSizedEmpty() {
+    CORRADE_SKIP("Zero-sized StaticArrayView is not implemented yet.");
+}
+
 void StaticArrayViewStlSpanTest::convertToConstSpanSized() {
     #if !__has_include(<span>)
     CORRADE_SKIP("The <span> header is not available on this platform.");
@@ -219,11 +247,17 @@ void StaticArrayViewStlSpanTest::convertToConstSpanSized() {
        that conversion to a different size or type is not allowed */
     CORRADE_VERIFY((std::is_convertible<Containers::StaticArrayView<5, int>, std::span<const int, 5>>::value));
     {
-        CORRADE_EXPECT_FAIL("The implicit all-catching span(Container&) constructor causes this to be an UB instead of giving me a possibility to catch this at compile time. Beyond stupid.");
+        #if defined(CORRADE_TARGET_LIBCXX) && _LIBCPP_VERSION < 9000
+        CORRADE_EXPECT_FAIL("The implicit all-catching span(Container&) constructor in libc++ < 9 causes this to be an UB instead of giving me a possibility to catch this at compile time.");
+        #endif
         CORRADE_VERIFY(!(std::is_convertible<Containers::StaticArrayView<5, int>, std::span<const int, 6>>::value));
     }
     CORRADE_VERIFY(!(std::is_convertible<Containers::StaticArrayView<5, int>, std::span<const float, 5>>::value));
     #endif
+}
+
+void StaticArrayViewStlSpanTest::convertToConstSpanSizedEmpty() {
+    CORRADE_SKIP("Zero-sized StaticArrayView is not implemented yet.");
 }
 
 }}}}

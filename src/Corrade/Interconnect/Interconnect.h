@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -31,11 +31,18 @@
 
 #include <cstddef>
 
+#include "Corrade/configure.h"
+
 namespace Corrade { namespace Interconnect {
 
 class Connection;
 class Emitter;
 class Receiver;
+
+namespace Implementation {
+    struct ConnectionData;
+    class SignalData;
+}
 
 template<std::size_t, std::size_t, class, class> class StateMachine;
 

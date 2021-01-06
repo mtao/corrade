@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -25,7 +25,9 @@
 
 #include <sstream>
 
+#ifndef CORRADE_NO_ASSERT
 #define CORRADE_NO_ASSERT
+#endif
 
 #include "Corrade/TestSuite/Tester.h"
 #include "Corrade/Utility/Assert.h"
@@ -64,11 +66,19 @@ void AssertDisabledTest::test() {
     int c = [&](){ CORRADE_ASSERT_OUTPUT(foo(), "foo() should succeed!", 7); return 3; }();
     CORRADE_INTERNAL_ASSERT_OUTPUT(foo());
 
-    if(!a) CORRADE_ASSERT_UNREACHABLE();
+    /* These *still* compile to __builtin_unreachable, so we shouldn't trigger
+       them */
+    [&](){ if(c != 3) CORRADE_ASSERT_UNREACHABLE("c should be 3", ); }();
+    int d = [&](){ if(c != 3) CORRADE_ASSERT_UNREACHABLE("c should be 3!", 7); return 3; }();
+    if(c != 3) CORRADE_INTERNAL_ASSERT_UNREACHABLE();
+
+    int e = CORRADE_INTERNAL_ASSERT_EXPRESSION(2 + 4)/2;
 
     CORRADE_COMPARE(a, 3);
     CORRADE_COMPARE(b, 3);
     CORRADE_COMPARE(c, 3);
+    CORRADE_COMPARE(d, 3);
+    CORRADE_COMPARE(e, 3);
     CORRADE_COMPARE(out.str(), "");
     #else
     CORRADE_SKIP("With assertions disabled, CORRADE_VERIFY() and CORRADE_COMPARE() cause a lot of false positives in Address Sanitizer.");

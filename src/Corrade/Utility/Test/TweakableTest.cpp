@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -86,7 +86,7 @@ constexpr struct {
 constexpr struct {
     const char* name;
     const char* data;
-    TweakableState(*parser)(Containers::ArrayView<const char>, Containers::StaticArrayView<Implementation::TweakableStorageSize, char>);
+    TweakableState(*parser)(Containers::StringView, Containers::StaticArrayView<Implementation::TweakableStorageSize, char>);
     TweakableState state;
     const char* error;
 } ParseErrorData[]{
@@ -211,15 +211,15 @@ TweakableTest::TweakableTest() {
 }
 
 void TweakableTest::constructCopy() {
-    CORRADE_VERIFY(!(std::is_constructible<Tweakable, const Tweakable&>{}));
-    CORRADE_VERIFY(!(std::is_assignable<Tweakable, const Tweakable&>{}));
+    CORRADE_VERIFY(!std::is_copy_constructible<Tweakable>{});
+    CORRADE_VERIFY(!std::is_copy_assignable<Tweakable>{});
 }
 
 void TweakableTest::constructMove() {
     /* For a move we would need some NoCreate state and the destructor not
        checking for globalInstance == this */
-    CORRADE_VERIFY(!(std::is_constructible<Tweakable, Tweakable&&>{}));
-    CORRADE_VERIFY(!(std::is_assignable<Tweakable, Tweakable&&>{}));
+    CORRADE_VERIFY(!std::is_move_constructible<Tweakable>{});
+    CORRADE_VERIFY(!std::is_move_assignable<Tweakable>{});
 }
 
 void TweakableTest::findTweakableAlias() {
@@ -294,7 +294,7 @@ _('\'') // also no parser
             "Utility::Tweakable::update(): ignoring unknown new value _('\\'') in a.cpp:13\n");
         CORRADE_COMPARE(state, TweakableState::Success);
         CORRADE_COMPARE(scopes.size(), 1);
-        CORRADE_COMPARE(std::get<0>(*scopes.begin()), lambda2);
+        CORRADE_VERIFY(std::get<0>(*scopes.begin()) == lambda2);
     }
     CORRADE_COMPARE(*reinterpret_cast<int*>(variables[0].storage), 3);
     CORRADE_COMPARE(*reinterpret_cast<float*>(variables[1].storage), 4.0f);

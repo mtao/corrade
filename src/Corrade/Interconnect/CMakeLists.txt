@@ -2,7 +2,7 @@
 #   This file is part of Corrade.
 #
 #   Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-#               2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+#               2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a
 #   copy of this software and associated documentation files (the "Software"),
@@ -36,10 +36,14 @@ set(CorradeInterconnect_HEADERS
     StateMachine.h
     visibility.h)
 
+set(CorradeInterconnect_PRIVATE_HEADERS
+    Implementation/ReceiverConnection.h)
+
 # Interconnect library
 add_library(CorradeInterconnect ${SHARED_OR_STATIC}
     ${CorradeInterconnect_SRCS}
-    ${CorradeInterconnect_HEADERS})
+    ${CorradeInterconnect_HEADERS}
+    ${CorradeInterconnect_PRIVATE_HEADERS})
 set_target_properties(CorradeInterconnect PROPERTIES
     DEBUG_POSTFIX "-d"
     FOLDER "Corrade/Interconnect")

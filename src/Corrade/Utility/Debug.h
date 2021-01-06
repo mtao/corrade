@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -41,6 +41,22 @@
 #include "Corrade/Utility/visibility.h"
 
 namespace Corrade { namespace Utility {
+
+/**
+@brief Source location support in debug output
+@m_since{2020,06}
+
+Defined if @ref Corrade::Utility::Debug "Utility::Debug" is able to print
+source location support. Available on GCC at least since version 4.8, Clang 9+
+and MSVC 2019 16.6 and newer. See @ref Utility-Debug-source-location for more
+information.
+*/
+/* To distinguish Apple Clang (9.0 will hopefully be Xcode 12), using
+   __apple_build_version__ according to https://stackoverflow.com/a/19391724 */
+#if defined(DOXYGEN_GENERATING_OUTPUT) || (defined(__GNUC__) && !defined(__clang__)) || (defined(__clang__) && ((defined(__apple_build_version__) && __clang_major__ >= 12) || (!defined(__apple_build_version__) && __clang_major__ >= 9))) || (defined(_MSC_VER) && _MSC_VER >= 1926)
+#define CORRADE_UTILITY_DEBUG_HAS_SOURCE_LOCATION
+namespace Implementation { struct DebugSourceLocation; }
+#endif
 
 /**
 @brief Debug output handler
@@ -130,6 +146,45 @@ documentation for more information.
 
 @include UtilityDebug-color-greyscale.ansi
 
+@section Utility-Debug-source-location Source location
+
+Similarly to the [dbg! macro in Rust](https://blog.rust-lang.org/2019/01/17/Rust-1.32.0.html#the-dbg-macro),
+on supported compilers the utility is able to print source file location and
+line where the debug output was executed, improving the "printf debugging"
+experience. By default no source location info is printed, in order to do that
+prefix the @ref Debug instantiation with an exclamation mark. Additionally,
+an otherwise unused exclamated instantiation prints just the file + line alone
+(in contrast to unexclamated instantiaton, which is a no-op):
+
+@snippet Utility.cpp Debug-source-location
+
+The above code then may print something like this:
+
+@code{.shell-session}
+main.cpp:10: the result is 42
+main.cpp:11: the result is 5.25
+main.cpp:13
+and finally, 42
+@endcode
+
+At the moment, this feature is available on GCC at least since version 4.8 and
+Clang 9+, elsewhere it behaves like the unexclamated version. You can check for
+its availability using the @ref CORRADE_UTILITY_DEBUG_HAS_SOURCE_LOCATION
+predefined macro.
+
+@section Utility-Debug-windows ANSI color support and UTF-8 output on Windows
+
+See the @ref main "Corrade::Main" library for more information about a
+convenient way to support ANSI colors and UTF-8 output encoding on Windows.
+
+@section Utility-Debug-multithreading Thread safety
+
+If Corrade is compiled with @ref CORRADE_BUILD_MULTITHREADED enabled (the
+default), scoped output redirection and coloring is done thread-locally. This
+might cause some performance penalties --- if you are sure that you will never
+need to handle these per-thread (and won't need any other functionality enabled
+by this option either), build Corrade with the option disabled.
+
 @see @ref Warning, @ref Error, @ref Fatal, @ref CORRADE_ASSERT(),
     @ref CORRADE_INTERNAL_ASSERT(), @ref CORRADE_INTERNAL_ASSERT_OUTPUT(),
     @ref AndroidLogStreamBuffer, @ref formatString()
@@ -139,6 +194,7 @@ class CORRADE_UTILITY_EXPORT Debug {
     public:
         /**
          * @brief Debug output flag
+         * @m_since{2019,10}
          *
          * @see @ref Flags, @ref Debug(Flags)
          */
@@ -158,7 +214,7 @@ class CORRADE_UTILITY_EXPORT Debug {
 
             /**
              * Print without spaces between values.
-             * @see @ref nospace
+             * @see @ref nospace, @ref space
              */
             NoSpace = 1 << 2,
 
@@ -174,12 +230,13 @@ class CORRADE_UTILITY_EXPORT Debug {
              */
             Color = 1 << 4
 
-            /* When adding values, don't forget to adapt PublicFlagMask in
-               Debug.cpp */
+            /* When adding values, don't forget to adapt InternalFlag as well
+               and update PublicFlagMask in Debug.cpp */
         };
 
         /**
          * @brief Debug output flags
+         * @m_since{2019,10}
          *
          * @see @ref Debug(Flags)
          */
@@ -192,7 +249,8 @@ class CORRADE_UTILITY_EXPORT Debug {
         /**
          * @brief Debug output modifier
          *
-         * @see @ref nospace, @ref newline, @ref operator<<(Modifier)
+         * @see @ref nospace, @ref newline, @ref space,
+         *      @ref operator<<(Modifier)
          */
         typedef void(*Modifier)(Debug&);
 
@@ -260,7 +318,7 @@ class CORRADE_UTILITY_EXPORT Debug {
          *
          * @snippet Utility.cpp Debug-nospace
          *
-         * @see @ref Flag::NoSpace, @ref newline
+         * @see @ref Flag::NoSpace, @ref space, @ref newline
          */
         static void nospace(Debug& debug) {
             debug._immediateFlags |= InternalFlag::NoSpace;
@@ -285,6 +343,30 @@ class CORRADE_UTILITY_EXPORT Debug {
          */
         static void newline(Debug& debug) {
             debug << nospace << "\n" << nospace;
+        }
+
+        /**
+         * @brief Output a space
+         * @m_since{2020,06}
+         *
+         * Puts a space (not surrounded by additional spaces) to the output.
+         * Useful for adding an explicit leading space or for delimiting values
+         * with spaces when @ref Flag::NoSpace is set. The last two lines are
+         * equivalent:
+         *
+         * @snippet Utility.cpp Debug-space
+         *
+         * and the output is
+         *
+         * @code{.shell-session}
+         * Value:
+         *  16
+         * @endcode
+         *
+         * @see @ref nospace, @ref newline
+         */
+        static void space(Debug& debug) {
+            debug << nospace << " " << nospace;
         }
 
         /**
@@ -320,6 +402,7 @@ class CORRADE_UTILITY_EXPORT Debug {
 
         /**
          * @brief Print the next value in a packed form
+         * @m_since{2019,10}
          *
          * Enables a more compact output for types that support it (such as
          * iterable containers).
@@ -331,6 +414,7 @@ class CORRADE_UTILITY_EXPORT Debug {
 
         /**
          * @brief Print the next value as a color
+         * @m_since{2019,10}
          *
          * Prints color-like values as actual 24bit ANSI color sequences.
          * @see @ref Flag::Color, @ref operator<<(unsigned char)
@@ -349,13 +433,28 @@ class CORRADE_UTILITY_EXPORT Debug {
             return *this;
         }
 
-        /*@}*/
+        /* Since 1.8.17, the original short-hand group closing doesn't work
+           anymore. FFS. */
+        /**
+         * @}
+         */
+
+        /**
+         * @brief Default debug output stream
+         * @m_since{2019,10}
+         *
+         * Debug output when no output redirection happens. A pointer to
+         * @ref std::cout.
+         * @see @ref output()
+         */
+        static std::ostream* defaultOutput();
 
         /**
          * @brief Current debug output stream
          *
          * Debug output constructed with the @ref Debug(Flags) constructor will
          * be using this output stream.
+         * @see @ref defaultOutput()
          */
         static std::ostream* output();
 
@@ -435,6 +534,7 @@ class CORRADE_UTILITY_EXPORT Debug {
 
         /**
          * @brief Flags applied for all following values
+         * @m_since{2019,10}
          *
          * @see @ref Utility-Debug-modifiers, @ref immediateFlags()
          */
@@ -442,6 +542,7 @@ class CORRADE_UTILITY_EXPORT Debug {
 
         /**
          * @brief Set flags applied for all following values
+         * @m_since{2019,10}
          *
          * @see @ref Utility-Debug-modifiers, @ref setImmediateFlags()
          */
@@ -449,6 +550,7 @@ class CORRADE_UTILITY_EXPORT Debug {
 
         /**
          * @brief Flags applied for the immediately following value
+         * @m_since{2019,10}
          *
          * Returned value is a combination of @ref flags() and immediate flags.
          * The immediate part gets reset after a value is printed.
@@ -458,6 +560,7 @@ class CORRADE_UTILITY_EXPORT Debug {
 
         /**
          * @brief Set flags to be applied for the immediately following value
+         * @m_since{2019,10}
          *
          * Unlike flags set with @ref setFlags(), these get applied only to the
          * immediately following value and reset after.
@@ -473,9 +576,48 @@ class CORRADE_UTILITY_EXPORT Debug {
          * @see @ref operator<<(Debug&, const std::string&),
          *      @ref operator<<(Debug&, const T&)
          */
-        Debug& operator<<(const char* value);            /**< @overload */
+        Debug& operator<<(const char* value);
+
+        /**
+         * @overload
+         * @m_since_latest
+         */
+        Debug& operator<<(Containers::StringView value);
+
+        /* Unfortunately we can't have just a StringView overload because
+           when StringStl.h is included, printing a String also matches
+           operator<<(DebugOstreamFallback&&), causing ambiguity. And when we
+           have a String overload, we need a MutableStringView one as well,
+           because otherwise there's an ambiguity between StringView and
+           String. Sigh. */
+
+        /**
+         * @overload
+         * @m_since_latest
+         */
+        Debug& operator<<(Containers::MutableStringView value);
+
+        /**
+         * @overload
+         * @m_since_latest
+         */
+        Debug& operator<<(const Containers::String& value);
+
+        /**
+         * @brief Print a pointer value to debug output
+         *
+         * The value is printed in lowercase hexadecimal, for example
+         * @cb{.shell-session} 0xdeadbeef @ce.
+         */
         Debug& operator<<(const void* value);            /**< @overload */
-        Debug& operator<<(bool value);                   /**< @overload */
+
+        /**
+         * @brief Print a boolean value to debug output
+         *
+         * The value is printed as literal @cb{.shell-session} true @ce or
+         * @cb{.shell-session} false @ce.
+         */
+        Debug& operator<<(bool value);
 
         /**
          * @brief Print char to debug output
@@ -528,16 +670,14 @@ class CORRADE_UTILITY_EXPORT Debug {
          */
         Debug& operator<<(double value);
 
-        #ifndef CORRADE_TARGET_EMSCRIPTEN
         /**
          * @brief Print `long double` value to debug output
          *
-         * Prints the value with 18 significant digits.
-         * @partialsupport Not available in @ref CORRADE_TARGET_EMSCRIPTEN "Emscripten"
-         *      as JavaScript doesn't support doubles larger than 64 bits.
+         * Prints the value with 18 significant digits on platforms with 80-bit
+         * @cpp long double @ce and 15 digits on platforms
+         * @ref CORRADE_LONG_DOUBLE_SAME_AS_DOUBLE "where it is 64-bit".
          */
         Debug& operator<<(long double value);
-        #endif
 
         /**
          * @brief Print UTF-32 character to debug output
@@ -596,13 +736,11 @@ class CORRADE_UTILITY_EXPORT Debug {
         InternalFlags _immediateFlags;
 
     private:
-        template<Color c, bool bold> CORRADE_UTILITY_LOCAL static Modifier colorInternal();
-
-        static CORRADE_UTILITY_LOCAL std::ostream* _globalOutput;
-        #if !defined(CORRADE_TARGET_WINDOWS) || defined(CORRADE_UTILITY_USE_ANSI_COLORS)
-        static CORRADE_UTILITY_LOCAL Color _globalColor;
-        static CORRADE_UTILITY_LOCAL bool _globalColorBold;
+        #ifdef CORRADE_UTILITY_DEBUG_HAS_SOURCE_LOCATION
+        friend Implementation::DebugSourceLocation;
         #endif
+
+        template<Color c, bool bold> CORRADE_UTILITY_LOCAL static Modifier colorInternal();
 
         CORRADE_UTILITY_LOCAL void resetColorInternal();
 
@@ -612,6 +750,10 @@ class CORRADE_UTILITY_EXPORT Debug {
         #else
         Color _previousColor;
         bool _previousColorBold;
+        #endif
+        #ifdef CORRADE_UTILITY_DEBUG_HAS_SOURCE_LOCATION
+        const char* _sourceLocationFile{};
+        int _sourceLocationLine{};
         #endif
 };
 
@@ -625,7 +767,37 @@ CORRADE_UTILITY_EXPORT Debug& operator<<(Debug& debug, Debug::Flag value);
 CORRADE_UTILITY_EXPORT Debug& operator<<(Debug& debug, Debug::Flags value);
 
 CORRADE_ENUMSET_OPERATORS(Debug::Flags)
-CORRADE_ENUMSET_OPERATORS(Debug::InternalFlags)
+
+#ifdef CORRADE_UTILITY_DEBUG_HAS_SOURCE_LOCATION
+namespace Implementation {
+    struct CORRADE_UTILITY_EXPORT DebugSourceLocation {
+        #if defined(__GNUC__) || defined(__clang__) || defined(_MSC_VER)
+        /* Not using std::experimental::source_location because it's not in
+           libc++ 9 yet and GCC version has a C++14 usage of constexpr */
+        /*implicit*/ DebugSourceLocation(Debug&& debug, const char* file = __builtin_FILE(), int line = __builtin_LINE());
+        #else
+        #error this needs to be implemented for new compilers
+        #endif
+        Debug* debug;
+    };
+}
+
+/** @relatesalso Debug
+@brief Prefix the output with source location
+@m_since{2020,06}
+
+Only on supported compilers, does nothing otherwise. See
+@ref Utility-Debug-source-location for more information.
+*/
+/* Unfortunately it's not possible to add additional (default) arguments to
+   operator! so we need to use a implicitly convertible type and capture the
+   source location in its constructor */
+inline Debug& operator!(Implementation::DebugSourceLocation debug) {
+    return *debug.debug;
+}
+#else
+inline Debug& operator!(Debug&& debug) { return debug; }
+#endif
 
 #ifndef DOXYGEN_GENERATING_OUTPUT
 /* so Debug() << value works */
@@ -743,10 +915,21 @@ outputs.
 class CORRADE_UTILITY_EXPORT Warning: public Debug {
     public:
         /**
+         * @brief Default warning output stream
+         * @m_since{2019,10}
+         *
+         * Warning output when no output redirection happens. A pointer to
+         * @ref std::cerr.
+         * @see @ref output()
+         */
+        static std::ostream* defaultOutput();
+
+        /**
          * @brief Current warning output stream
          *
          * Warning output constructed with the @ref Warning(Flags) constructor
          * will be using this output stream.
+         * @see @ref defaultOutput()
          */
         static std::ostream* output();
 
@@ -803,7 +986,6 @@ class CORRADE_UTILITY_EXPORT Warning: public Debug {
         Warning& operator=(Warning&&) = delete;
 
     private:
-        static CORRADE_UTILITY_LOCAL std::ostream* _globalWarningOutput;
         std::ostream* _previousGlobalWarningOutput;
 };
 
@@ -818,10 +1000,21 @@ class CORRADE_UTILITY_EXPORT Error: public Debug {
 
     public:
         /**
+         * @brief Default error output stream
+         * @m_since{2019,10}
+         *
+         * Error output when no output redirection happens. A pointer to
+         * @ref std::cerr.
+         * @see @ref output()
+         */
+        static std::ostream* defaultOutput();
+
+        /**
          * @brief Current error output stream
          *
          * Error output constructed with the @ref Error(Flags) constructor
          * will be using this output stream.
+         * @see @ref defaultOutput()
          */
         static std::ostream* output();
 
@@ -885,12 +1078,11 @@ class CORRADE_UTILITY_EXPORT Error: public Debug {
         CORRADE_UTILITY_LOCAL void cleanupOnDestruction(); /* Needed for Fatal */
 
     private:
-        static CORRADE_UTILITY_LOCAL std::ostream* _globalErrorOutput;
         std::ostream* _previousGlobalErrorOutput;
 };
 
 /**
-@brief Warning output handler
+@brief Fatal output handler
 
 Equivalent to @ref Error, but exits with defined exit code on destruction. So
 instead of this:

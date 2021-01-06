@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -41,6 +41,8 @@ namespace Corrade { namespace Utility {
 
 /**
 @brief Parser and writer for configuration files
+
+@m_keywords{Serialization Parsers}
 
 Provides hierarchical configuration storage for key/value pairs with support
 for parsing and loading into an textual INI-style file format. Basic API usage
@@ -245,8 +247,9 @@ class CORRADE_UTILITY_EXPORT Configuration: public ConfigurationGroup {
         /**
          * @brief Flags for opening configuration file
          *
-         * @see @ref Configuration::Configuration()
+         * @see @ref Configuration(Flags) "Configuration()"
          */
+        /* For some reason @ref Configuration() doesn't work since 1.8.17 */
         typedef Containers::EnumSet<Flag> Flags;
 
         /**
@@ -349,7 +352,7 @@ class CORRADE_UTILITY_EXPORT Configuration: public ConfigurationGroup {
         CORRADE_ENUMSET_FRIEND_OPERATORS(InternalFlags)
 
         CORRADE_UTILITY_LOCAL bool parse(Containers::ArrayView<const char> in);
-        CORRADE_UTILITY_LOCAL Containers::ArrayView<const char> parse(Containers::ArrayView<const char> in, ConfigurationGroup* group, const std::string& fullPath);
+        CORRADE_UTILITY_LOCAL std::pair<Containers::ArrayView<const char>, const char*> parse(Containers::ArrayView<const char> in, ConfigurationGroup* group, const std::string& fullPath);
         CORRADE_UTILITY_LOCAL void save(std::ostream& out, const std::string& eol, ConfigurationGroup* group, const std::string& fullPath) const;
 
         CORRADE_UTILITY_LOCAL void setConfigurationPointer(ConfigurationGroup* group);
@@ -359,7 +362,6 @@ class CORRADE_UTILITY_EXPORT Configuration: public ConfigurationGroup {
 };
 
 CORRADE_ENUMSET_OPERATORS(Configuration::Flags)
-CORRADE_ENUMSET_OPERATORS(Configuration::InternalFlags)
 
 }}
 

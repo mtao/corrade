@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 */
 
 /** @file
- * @brief Class @ref Corrade::TestSuite::Tester, macros @ref CORRADE_TEST_MAIN(), @ref CORRADE_VERIFY(), @ref CORRADE_COMPARE(), @ref CORRADE_COMPARE_AS(), @ref CORRADE_COMPARE_WITH(), @ref CORRADE_EXPECT_FAIL(), @ref CORRADE_EXPECT_FAIL_IF(), @ref CORRADE_SKIP(), @ref CORRADE_BENCHMARK()
+ * @brief Class @ref Corrade::TestSuite::Tester, macros @ref CORRADE_TEST_MAIN(), @ref CORRADE_VERIFY(), @ref CORRADE_COMPARE(), @ref CORRADE_COMPARE_AS(), @ref CORRADE_COMPARE_WITH(), @ref CORRADE_EXPECT_FAIL(), @ref CORRADE_EXPECT_FAIL_IF(), @ref CORRADE_SKIP(), @ref CORRADE_ITERATION(), @ref CORRADE_BENCHMARK()
  */
 
 #include <initializer_list>
@@ -79,7 +79,9 @@ in the constructor and the @cpp main() @ce function is created using
 @ref CORRADE_TEST_MAIN(). The goal is to have as little boilerplate as
 possible, thus the test usually  consists of only one `*.cpp` file with no
 header and the derived type is a @cpp struct @ce to avoid having to write
-@cpp public @ce keywords.
+@cpp public @ce keywords. It's also advised to wrap everything except the
+@ref CORRADE_TEST_MAIN() macro in an unnamed namespace, as that will make the
+compiler tell you about accidentally unused test cases or variables.
 
 @snippet testsuite-basic.cpp 0
 
@@ -88,16 +90,16 @@ The above gives the following output:
 @include testsuite-basic.ansi
 
 Actual testing is done via various @ref CORRADE_VERIFY(), @ref CORRADE_COMPARE(),
-@ref CORRADE_COMPARE_AS() and @ref CORRADE_COMPARE_WITH() macros. If some
-comparison in given test case fails, a @cb{.ansi} [1;31mFAIL @ce with
-concrete file, line and additional diagnostic is printed to the output and the
-test case is exited without executing the remaining statements. Otherwise, if
-all comparisons in given test case pass, an @cb{.ansi} [1;39mOK @ce is
-printed. The main difference between these macros is the kind of diagnostic
-output they print when comparison fails --- for example a simple expression
-failure reported by @ref CORRADE_VERIFY() is enough when checking for
-non-@cpp nullptr @ce value, but for comparing a 1000-element array you might
-want to use @ref CORRADE_COMPARE_AS() with @ref Compare::Container instead.
+@ref CORRADE_COMPARE_AS() and other macros. If some comparison in given test
+case fails, a @cb{.ansi} [1;31mFAIL @ce with concrete file, line and
+additional diagnostic is printed to the output and the test case is exited
+without executing the remaining statements. Otherwise, if all comparisons in
+given test case pass, an @cb{.ansi} [1;39mOK @ce is printed. The main
+difference between these macros is the kind of diagnostic output they print
+when comparison fails --- for example a simple expression failure reported by
+@ref CORRADE_VERIFY() is enough when checking for non-@cpp nullptr @ce value,
+but for comparing two strings you may want to use @ref CORRADE_COMPARE() so you
+can not only see that they differ, but also *how* they differ.
 
 Additionally there are @ref CORRADE_SKIP(), @ref CORRADE_EXPECT_FAIL() and
 @ref CORRADE_EXPECT_FAIL_IF() control flow helpers that allow you to say for
@@ -115,7 +117,7 @@ The only reason why those are macros and not member functions is the ability to
 gather class/function/file/line/expression information via the preprocessor for
 printing the test output and exact location of possible test failure. If none
 of these macros is encountered when running the test case, the test case is
-reported as invalid, with `?` on output.
+reported as invalid, with @cb{.ansi} [1;33m? @ce on output.
 
 The test cases are numbered on the output and those numbers can be used on the
 command-line to whitelist/blacklist the test cases with `--only`/`--skip`,
@@ -171,6 +173,26 @@ the templated tests, @ref setTestCaseDescription() allows you to set a
 human-readable description of given instance. If not called, the instances are
 just numbered in the output.
 
+@section TestSuite-Tester-iteration-annotations Testing in a loop
+
+While instanced tests are usually the go-to solution when testing on a larger
+set of data, sometimes you need to loop over a few values and check them one by
+one. When such test fails, it's often hard to know which particular value
+caused the failure. To fix that, you can use the @ref CORRADE_ITERATION() macro
+to annotate current iteration in case of a failure. It works with any type
+printable via @ref Utility::Debug and handles nested loops as well. Silly
+example:
+
+@snippet testsuite-iteration.cpp 0
+
+On failure, the iteration value(s) will be printed next to the file/line info:
+
+@include testsuite-iteration.ansi
+
+This macro isn't limited to just loops, it can be used to provide more context
+to just any check. See also @ref Compare::Container for a convenient way of
+comparing container contents.
+
 @section TestSuite-Tester-repeated Repeated tests
 
 A complementary feature to instanced tests are repeated tests using
@@ -180,8 +202,8 @@ difference from instanced tests is that all repeats are treated as executing
 the same code and thus only the overall result is reported in the output. Also
 unlike instanced tests, if a particular repeat fails, no further repeats are
 executed. The test output contains number of executed repeats after the test
-case name, prefixed by `@`. Example of testing race conditions with multiple
-threads accessing the same variable:
+case name, prefixed by @cb{.ansi} [1;39m@ @ce. Example of testing race
+conditions with multiple threads accessing the same variable:
 
 @snippet testsuite-repeated.cpp 0
 
@@ -192,7 +214,7 @@ Depending on various factors, here is one possible output:
 Similarly to @ref testCaseInstanceId() there is @ref testCaseRepeatId() which
 gives repeat index. Use with care, however, as the repeated tests are assumed
 to execute the same code every time. On
-@ref TestSuite-Tester-command-line "the command-line" it is possible to
+@ref TestSuite-Tester-command-line "the command line" it is possible to
 increase repeat count via `--repeat-every`. In addition there is `--repeat-all`
 which behaves as like all `add*()` functions in the constructor were called
 multiple times in a loop. Combined with `--shuffle` this can be used to run the
@@ -201,6 +223,68 @@ interactions and order-dependent bugs.
 
 It's also possible to combine instanced and repeated tests using
 @ref addRepeatedInstancedTests().
+
+@section TestSuite-Tester-advanced-comparisons Advanced comparisons
+
+While the diagnostic provided by @ref CORRADE_COMPARE() is definitely better
+than just knowing that something failed, the @ref CORRADE_COMPARE_AS() and
+@ref CORRADE_COMPARE_WITH() macros allow for advanced comparison features in
+specialized cases. The @ref Compare namespace contains various builtin
+comparators, some of which are listed below. It's also possible to implement
+custom comparators for your own use cases --- see the @ref Comparator class for
+details.
+
+<ul>
+<li>
+@ref Compare::Container and @ref Compare::SortedContainer can be used for
+convenient comparison of large containers. Compared to plain
+@ref CORRADE_COMPARE() Its diagnostic will show where exactly the containers
+differ, which becomes useful with large data sizes:
+
+@snippet TestSuite.cpp Compare-Container
+</li>
+<li>
+@ref Compare::File, @ref Compare::FileToString and @ref Compare::StringToFile
+allow you to compare files without having to manually read them:
+
+@snippet TestSuite.cpp Compare-File
+</li>
+<li>
+@ref Compare::Less, @ref Compare::Around and others from the
+@ref Corrade/TestSuite/Compare/Numeric.h header allow you to do numeric
+comparisons that again provide better failure reporting compared to checking an
+expression result with @ref CORRADE_VERIFY():
+
+@snippet TestSuite.cpp Compare-around-just-one
+</li>
+<li>
+Finally, [Magnum](https://magnum.graphics) has a
+@m_class{m-doc-external} [DebugTools::CompareImage](https://doc.magnum.graphics/magnum/classMagnum_1_1DebugTools_1_1CompareImage.html)
+that's able to fuzzy-compare two images pixel-by-pixel and visualize the
+difference as an ASCII art directly in the console.
+</li>
+</ul>
+
+@section TestSuite-Tester-save-diagnostic Saving diagnostic files
+
+On comparison failure, it's sometimes desirable to inspect the generated data
+with an external tool. Or, in case the expected test data need to be updated,
+it's easier to copy over the generated data to the original file than applying
+changes manually. To make this easier without needing to add file-saving to the
+test itself, pass a path to the `--save-diagnostic`
+@ref TestSuite-Tester-command-line "command-line option". Comparators that
+operate with files (such as @ref Compare::File or @ref Compare::StringToFile)
+will then use this path to save the actual data under the same filename as the
+expected file, notifying you about the operation with a
+@cb{.ansi} [1;32mSAVED @ce message:
+
+@include testsuite-save-diagnostic.ansi
+
+Note that this functionality is not restricted to just saving the actual
+compared data (or to comparison failures) --- third-party comparators can use
+it for generating diffs or providing further diagnostic meant to be viewed
+externally. See the @ref TestSuite-Comparator-save-diagnostic "Comparator"
+class for further information.
 
 @section TestSuite-Tester-benchmark Benchmarks
 
@@ -295,6 +379,23 @@ taking a pair of parameter-less @cpp void @ce functions for setup and teardown.
 Both functions are called before and after each test case run, independently on
 whether the test case passed or failed.
 
+@section TestSuite-Tester-exceptions Catching exceptions
+
+If a test case fails with an unhandled exception, a @cb{.ansi} [1;31mTHROW @ce
+is printed on the output, together with a (platform-specific mangled) name of
+the exception type and contents of @ref std::exception::what(). No file/line
+info is provided in this case, as it's not easily possible to know where the
+exception originated from. Only exceptions derived from @ref std::exception are
+caught to avoid interferring with serious issues such as memory access errors.
+If catching unhandled exceptions is not desired (for example when you want to
+do a post-mortem debugging of the stack trace leading to the exception), it can
+be disabled with the `--no-catch` @ref TestSuite-Tester-command-line "command-line option".
+
+Apart from the above, the test suite doesn't provide any builtin exception
+support --- if it's needed to verify that an exception was or wasn't thrown,
+the user is expected to implement a @cpp try {} catch @ce block inside the test
+case and verify the desired properties directly.
+
 @section TestSuite-Tester-command-line Command-line options
 
 Command-line options that make sense to be set globally for multiple test cases
@@ -307,8 +408,8 @@ Usage:
 ./my-test [-h|--help] [-c|--color on|off|auto] [--skip "N1 N2..."]
     [--skip-tests] [--skip-benchmarks] [--only "N1 N2..."] [--shuffle]
     [--repeat-every N] [--repeat-all N] [--abort-on-fail] [--no-xfail]
-    [--benchmark TYPE] [--benchmark-discard N] [--benchmark-yellow N]
-    [--benchmark-red N]
+    [--no-catch] [--save-diagnostic PATH] [--verbose] [--benchmark TYPE]
+    [--benchmark-discard N] [--benchmark-yellow N] [--benchmark-red N]
 @endcode
 
 Arguments:
@@ -335,18 +436,24 @@ Arguments:
     `CORRADE_TEST_ABORT_ON_FAIL=ON|OFF`)
 -   `--no-xfail` --- disallow expected failures (environment:
     `CORRADE_TEST_NO_XFAIL=ON|OFF`)
+-   `--no-catch` --- don't catch standard exceptions (environment:
+    `CORRADE_TEST_NO_CATCH=ON|OFF`)
+-   `--save-diagnostic PATH` --- save diagnostic files to given path
+    (environment: `CORRADE_TEST_SAVE_DIAGNOSTIC`)
+-   `-v`, `--verbose` --- enable verbose output (environment:
+    `CORRADE_TEST_VERBOSE`)
 -   `--benchmark TYPE` --- default benchmark type (environment:
-    `CORRADE_BENCHMARK`). Supported benchmark types:
+    `CORRADE_TEST_BENCHMARK`). Supported benchmark types:
     -   `wall-time` --- wall time spent
     -   `cpu-time` --- CPU time spent
     -   `cpu-cycles` --- CPU cycles spent (x86 only, gives zero result
         elsewhere)
 -   `--benchmark-discard N` --- discard first N measurements of each benchmark
-    (environment: `CORRADE_BENCHMARK_DISCARD`, default: `1`)
+    (environment: `CORRADE_TEST_BENCHMARK_DISCARD`, default: `1`)
 -   `--benchmark-yellow N` --- deviation threshold for marking benchmark yellow
-    (environment: `CORRADE_BENCHMARK_YELLOW`, default: `0.05`)
+    (environment: `CORRADE_TEST_BENCHMARK_YELLOW`, default: `0.05`)
 -   `--benchmark-red N` --- deviation threshold for marking benchmark red
-    (environment: `CORRADE_BENCHMARK_RED`, default: `0.25`)
+    (environment: `CORRADE_TEST_BENCHMARK_RED`, default: `0.25`)
 
 @section TestSuite-Tester-running Compiling and running tests
 
@@ -363,6 +470,9 @@ it and adds it to CTest. Besides that it is able to link other arbitrary
 libraries to the executable and specify a list of files that the tests used. It
 provides additional useful features on various platforms:
 
+-   On Windows, the macro links the test executable to the @ref main "Corrade::Main"
+    library for ANSI color support, UTF-8 argument parsing and UTF-8 output
+    encoding.
 -   If compiling for Emscripten, using @ref corrade-cmake-add-test "corrade_add_test()"
     makes CTest run the resulting `*.js` file via Node.js. Also it is able to
     bundle all files specified in `FILES` into the virtual Emscripten
@@ -485,7 +595,27 @@ class CORRADE_TESTSUITE_EXPORT Tester {
                  */
                 TesterConfiguration& setSkippedArgumentPrefixes(std::initializer_list<std::string> prefixes);
 
+                #if defined(__linux__) || defined(DOXYGEN_GENERATING_OUTPUT)
+                /** @brief Where to check for active CPU scaling governor */
+                std::string cpuScalingGovernorFile() const;
+
+                /**
+                 * @brief Set where to check for active CPU scaling governor
+                 *
+                 * Running benchmarks on a system with dynamic CPU scaling
+                 * makes the measurements very noisy. If that's detected, a
+                 * warning is printed on output. Defaults to
+                 * `/sys/devices/system/cpu/cpu{}/cpufreq/scaling_governor`,
+                 * where `{}` is replaced with CPU ID; if the file doesn't
+                 * exist, no check is done.
+                 * @partialsupport Available only on Linux.
+                 */
+                TesterConfiguration& setCpuScalingGovernorFile(const std::string& filename);
+                #endif
+
             private:
+                friend Tester;
+
                 /* Don't want to include any vector or array here because we
                    don't need it in public APIs anyway. */
                 struct Data;
@@ -521,7 +651,8 @@ class CORRADE_TESTSUITE_EXPORT Tester {
         /**
          * @brief Benchmark type
          *
-         * @see @ref addBenchmarks(), @ref addInstancedBenchmarks()
+         * @see @ref TestSuite-Tester-benchmark, @ref addBenchmarks(),
+         *      @ref addInstancedBenchmarks()
          */
         enum class BenchmarkType {
             /* 0 reserved for test cases */
@@ -574,7 +705,8 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * @brief Custom benchmark units
          *
          * Unit of measurements outputted from custom benchmarks.
-         * @see @ref addCustomBenchmarks(), @ref addCustomInstancedBenchmarks()
+         * @see @ref TestSuite-Tester-benchmark-custom,
+         *      @ref addCustomBenchmarks(), @ref addCustomInstancedBenchmarks()
          */
         enum class BenchmarkUnits {
             /* Values should not overlap with BenchmarkType */
@@ -605,7 +737,7 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * Adds one or more test cases to be executed. It's not an error to
          * call this function multiple times or add one test case more than
          * once.
-         * @see @ref addInstancedTests()
+         * @see @ref TestSuite-Tester-basic, @ref addInstancedTests()
          */
         template<class Derived> void addTests(std::initializer_list<void(Derived::*)()> tests) {
             addRepeatedTests<Derived>(tests, 1);
@@ -620,7 +752,8 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * It's not an error to call this function multiple times or add a
          * particular test case more than once --- in that case it will appear
          * in the output log once for each occurence in the list.
-         * @see @ref addInstancedTests(), @ref addRepeatedInstancedTests()
+         * @see @ref TestSuite-Tester-repeated, @ref addInstancedTests(),
+         *      @ref addRepeatedInstancedTests()
          */
         template<class Derived> void addRepeatedTests(std::initializer_list<void(Derived::*)()> tests, std::size_t repeatCount) {
             addRepeatedTests<Derived>(tests, repeatCount, nullptr, nullptr);
@@ -639,7 +772,8 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * verification macros in @p setup or @p teardown function is not
          * allowed. It's not an error to call this function multiple times or
          * add one test case more than once.
-         * @see @ref addInstancedTests()
+         * @see @ref TestSuite-Tester-basic,
+         *      @ref TestSuite-Tester-setup-teardown, @ref addInstancedTests()
          */
         template<class Derived> void addTests(std::initializer_list<void(Derived::*)()> tests, void(Derived::*setup)(), void(Derived::*teardown)()) {
             addRepeatedTests<Derived>(tests, 1, setup, teardown);
@@ -656,7 +790,9 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * multiple times or add a particular test case more than once --- in
          * that case it will appear in the output log once for each occurence
          * in the list.
-         * @see @ref addInstancedTests(), @ref addRepeatedInstancedTests()
+         * @see @ref TestSuite-Tester-repeated,
+         *      @ref TestSuite-Tester-setup-teardown, @ref addInstancedTests(),
+         *      @ref addRepeatedInstancedTests()
          */
         template<class Derived> void addRepeatedTests(std::initializer_list<void(Derived::*)()> tests, std::size_t repeatCount, void(Derived::*setup)(), void(Derived::*teardown)()) {
             for(auto test: tests)
@@ -672,7 +808,8 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * call this function multiple times or add one test case more than
          * once --- in that case it will appear once for each instance of each
          * occurence in the list.
-         * @see @ref testCaseInstanceId(), @ref setTestCaseDescription()
+         * @see @ref TestSuite-Tester-instanced, @ref testCaseInstanceId(),
+         *      @ref setTestCaseDescription()
          */
         template<class Derived> void addInstancedTests(std::initializer_list<void(Derived::*)()> tests, std::size_t instanceCount) {
             addRepeatedInstancedTests<Derived>(tests, 1, instanceCount);
@@ -687,7 +824,9 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * for each instance. It's not an error to call this function multiple
          * times or add one test case more than once --- in that case it will
          * appear once for each instance of each occurence in the list.
-         * @see @ref addInstancedTests(), @ref addRepeatedInstancedTests()
+         * @see @ref TestSuite-Tester-repeated,
+         *      @ref TestSuite-Tester-instanced, @ref addInstancedTests(),
+         *      @ref addRepeatedInstancedTests()
          */
         template<class Derived> void addRepeatedInstancedTests(std::initializer_list<void(Derived::*)()> tests, std::size_t repeatCount, std::size_t instanceCount) {
             addRepeatedInstancedTests<Derived>(tests, repeatCount, instanceCount, nullptr, nullptr);
@@ -709,6 +848,8 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * this function multiple times or add one test case more than once ---
          * in that case it will appear once for each instance of each occurence
          * in the list.
+         * @see @ref TestSuite-Tester-instanced,
+         *      @ref TestSuite-Tester-setup-teardown
          */
         template<class Derived> void addInstancedTests(std::initializer_list<void(Derived::*)()> tests, std::size_t instanceCount, void(Derived::*setup)(), void(Derived::*teardown)()) {
             addRepeatedInstancedTests<Derived>(tests, 1, instanceCount, setup, teardown);
@@ -725,7 +866,10 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * error to call this function multiple times or add one test case more
          * than once --- in that case it will appear once for each instance of
          * each occurence in the list.
-         * @see @ref addInstancedTests(), @ref addRepeatedInstancedTests()
+         * @see @ref TestSuite-Tester-repeated,
+         *      @ref TestSuite-Tester-instanced,
+         *      @ref TestSuite-Tester-setup-teardown, @ref addInstancedTests(),
+         *      @ref addRepeatedInstancedTests()
          */
         template<class Derived> void addRepeatedInstancedTests(std::initializer_list<void(Derived::*)()> tests, std::size_t repeatCount, std::size_t instanceCount, void(Derived::*setup)(), void(Derived::*teardown)()) {
             for(auto test: tests) for(std::size_t i = 0; i != instanceCount; ++i)
@@ -747,7 +891,7 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * will be done in each batch to minimize overhead. It's not an error
          * to call this function multiple times or add one benchmark more than
          * once.
-         * @see @ref addInstancedBenchmarks()
+         * @see @ref TestSuite-Tester-benchmark, @ref addInstancedBenchmarks()
          */
         template<class Derived> void addBenchmarks(std::initializer_list<void(Derived::*)()> benchmarks, std::size_t batchCount, BenchmarkType benchmarkType = BenchmarkType::Default) {
             addBenchmarks<Derived>(benchmarks, batchCount, nullptr, nullptr, benchmarkType);
@@ -768,7 +912,9 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * or was skipped. Using verification macros in @p setup or @p teardown
          * function is not allowed. It's not an error to call this function
          * multiple times or add one benchmark more than once.
-         * @see @ref addInstancedBenchmarks()
+         * @see @ref TestSuite-Tester-benchmark,
+         *      @ref TestSuite-Tester-setup-teardown,
+         *      @ref addInstancedBenchmarks()
          */
         template<class Derived> void addBenchmarks(std::initializer_list<void(Derived::*)()> benchmarks, std::size_t batchCount, void(Derived::*setup)(), void(Derived::*teardown)(), BenchmarkType benchmarkType = BenchmarkType::Default) {
             addCustomBenchmarks<Derived>(benchmarks, batchCount, setup, teardown, nullptr, nullptr, BenchmarkUnits(int(benchmarkType)));
@@ -787,7 +933,8 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * @p benchmarkEnd parameter ends the measurement and returns measured
          * value, which is in @p units. It's not an error to call this function
          * multiple times or add one benchmark more than once.
-         * @see @ref addCustomInstancedBenchmarks()
+         * @see @ref TestSuite-Tester-benchmark-custom,
+         *      @ref addCustomInstancedBenchmarks()
          */
         template<class Derived> void addCustomBenchmarks(std::initializer_list<void(Derived::*)()> benchmarks, std::size_t batchCount, void(Derived::*benchmarkBegin)(), std::uint64_t(Derived::*benchmarkEnd)(), BenchmarkUnits benchmarkUnits) {
             addCustomBenchmarks<Derived>(benchmarks, batchCount, nullptr, nullptr, static_cast<TestCase::BenchmarkBegin>(benchmarkBegin), static_cast<TestCase::BenchmarkEnd>(benchmarkEnd), benchmarkUnits);
@@ -810,7 +957,9 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * or was skipped. Using verification macros in @p setup or @p teardown
          * function is not allowed. It's not an error to call this function
          * multiple times or add one benchmark more than once.
-         * @see @ref addCustomInstancedBenchmarks()
+         * @see @ref TestSuite-Tester-benchmark-custom,
+         *      @ref TestSuite-Tester-setup-teardown,
+         *      @ref addCustomInstancedBenchmarks()
          */
         template<class Derived> void addCustomBenchmarks(std::initializer_list<void(Derived::*)()> benchmarks, std::size_t batchCount, void(Derived::*setup)(), void(Derived::*teardown)(), void(Derived::*benchmarkBegin)(), std::uint64_t(Derived::*benchmarkEnd)(), BenchmarkUnits benchmarkUnits) {
             for(auto benchmark: benchmarks)
@@ -830,7 +979,9 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * not an error to call this function multiple times or add one
          * benchmark more than once --- in that case it will appear once for
          * each instance of each occurence in the list.
-         * @see @ref testCaseInstanceId(), @ref setTestCaseDescription()
+         * @see @ref TestSuite-Tester-benchmark,
+         *      @ref TestSuite-Tester-instanced, @ref testCaseInstanceId(),
+         *      @ref setTestCaseDescription()
          */
         template<class Derived> void addInstancedBenchmarks(std::initializer_list<void(Derived::*)()> benchmarks, std::size_t batchCount, std::size_t instanceCount, BenchmarkType benchmarkType = BenchmarkType::Default) {
             addInstancedBenchmarks<Derived>(benchmarks, batchCount, instanceCount, nullptr, nullptr, benchmarkType);
@@ -854,6 +1005,9 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * to call this function multiple times or add one benchmark more than
          * once --- in that case it will appear once for each instance of each
          * occurence in the list.
+         * @see @ref TestSuite-Tester-benchmark,
+         *      @ref TestSuite-Tester-instanced,
+         *      @ref TestSuite-Tester-setup-teardown
          */
         template<class Derived> void addInstancedBenchmarks(std::initializer_list<void(Derived::*)()> benchmarks, std::size_t batchCount, std::size_t instanceCount, void(Derived::*setup)(), void(Derived::*teardown)(), BenchmarkType benchmarkType = BenchmarkType::Default) {
             addCustomInstancedBenchmarks<Derived>(benchmarks, batchCount, instanceCount, setup, teardown, nullptr, nullptr, BenchmarkUnits(int(benchmarkType)));
@@ -874,6 +1028,8 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * value, which is in @p units. It's not an error to call this function
          * multiple times or add one benchmark more than once --- in that case
          * it will appear once for each instance of each occurence in the list.
+         * @see @ref TestSuite-Tester-benchmark-custom,
+         *      @ref TestSuite-Tester-instanced
          */
         template<class Derived> void addCustomInstancedBenchmarks(std::initializer_list<void(Derived::*)()> benchmarks, std::size_t batchCount, std::size_t instanceCount, void(Derived::*benchmarkBegin)(), std::uint64_t(Derived::*benchmarkEnd)(), BenchmarkUnits benchmarkUnits) {
             addCustomInstancedBenchmarks<Derived>(benchmarks, batchCount, instanceCount, nullptr, nullptr, benchmarkBegin, benchmarkEnd, benchmarkUnits);
@@ -898,6 +1054,9 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * function is not allowed. It's not an error to call this function
          * multiple times or add one benchmark more than once --- in that case
          * it will appear once for each instance of each occurence in the list.
+         * @see @ref TestSuite-Tester-benchmark-custom,
+         *      @ref TestSuite-Tester-instanced,
+         *      @ref TestSuite-Tester-setup-teardown
          */
         template<class Derived> void addCustomInstancedBenchmarks(std::initializer_list<void(Derived::*)()> benchmarks, std::size_t batchCount, std::size_t instanceCount, void(Derived::*setup)(), void(Derived::*teardown)(), void(Derived::*benchmarkBegin)(), std::uint64_t(Derived::*benchmarkEnd)(), BenchmarkUnits benchmarkUnits) {
             for(auto benchmark: benchmarks) for(std::size_t i = 0; i != instanceCount; ++i)
@@ -908,8 +1067,8 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * @brief Test case ID
          *
          * Returns ID of the test case that is currently executing, starting
-         * from `1`. Value is undefined if called  outside of test cases and
-         * setup/teardown functions.
+         * from `1`.  Expects that this function is called from within a test
+         * case or its corresponding setup/teardown function.
          */
         std::size_t testCaseId() const;
 
@@ -917,8 +1076,9 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * @brief Test case instance ID
          *
          * Returns instance ID of the instanced test case that is currently
-         * executing, starting from `0`. Value is undefined if called outside
-         * of *instanced* test cases and setup/teardown functions.
+         * executing, starting from `0`. Expects that this function is called
+         * from within an instanced test case or its corresponding
+         * setup/teardown function.
          * @see @ref addInstancedTests()
          */
         std::size_t testCaseInstanceId() const;
@@ -927,11 +1087,18 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * @brief Test case repeat ID
          *
          * Returns repeat ID of the repeated test case that is currently
-         * executing, starting from `0`. Value is undefined if called outside
-         * of *repeated* test cases and setup/teardown functions.
+         * executing, starting from `0`. Expects that this function is called
+         * from within a repeated test case or its corresponding setup/teardown
+         * function.
          * @see @ref addRepeatedTests()
          */
         std::size_t testCaseRepeatId() const;
+
+        /**
+         * @brief Test name
+         * @m_since_latest
+         */
+        Containers::StringView testName() const;
 
         /**
          * @brief Set custom test name
@@ -939,7 +1106,8 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * By default the test name is gathered together with test filename by
          * the @ref CORRADE_TEST_MAIN() macro and is equivalent to
          * fully-qualified class name.
-         * @see @ref setTestCaseName(), @ref setTestCaseDescription()
+         * @see @ref setTestCaseName(), @ref setTestCaseTemplateName(),
+         *      @ref setTestCaseDescription()
          */
         void setTestName(const std::string& name);
         void setTestName(std::string&& name); /**< @overload */
@@ -953,11 +1121,58 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          *
          * @snippet TestSuite.cpp Tester-setTestCaseName
          *
-         * @see @ref setTestName(), @ref setTestCaseDescription()
+         * @see @ref setTestCaseTemplateName(), @ref setTestName(),
+         *      @ref setTestCaseDescription(), @ref CORRADE_FUNCTION
          */
         void setTestCaseName(const std::string& name);
         void setTestCaseName(std::string&& name); /**< @overload */
         void setTestCaseName(const char* name); /**< @overload */
+
+        /**
+         * @brief Set test case template name
+         * @m_since{2019,10}
+         *
+         * Useful to distinguish different specializations of the same templated
+         * test case. Equivalent to the following called from inside the test
+         * case:
+         *
+         * @snippet TestSuite.cpp Tester-setTestCaseTemplateName
+         *
+         * @see @ref setTestCaseName(), @ref setTestName(),
+         *      @ref setTestCaseDescription(), @ref CORRADE_FUNCTION
+         */
+        void setTestCaseTemplateName(const std::string& name);
+
+        /**
+         * @overload
+         * @m_since{2019,10}
+         */
+        void setTestCaseTemplateName(std::string&& name);
+
+        /**
+         * @overload
+         * @m_since{2019,10}
+         */
+        void setTestCaseTemplateName(const char* name);
+
+        /**
+         * @overload
+         * @m_since_latest
+         *
+         * Useful for test cases that are templated with more than one
+         * parameter. Names are joined with `,`.
+         */
+        void setTestCaseTemplateName(std::initializer_list<Containers::StringView> names);
+        /**
+         * @overload
+         * @m_since_latest
+         *
+         * Has to be present in order to avoid @cpp {"abc", "def"} @ce being
+         * interpreted as a begin/end @ref std::string constructor causing all
+         * sorts of nasty memory issues. Sigh.
+         * @todo remove once we get rid of @ref std::string
+         */
+        void setTestCaseTemplateName(std::initializer_list<const char*> names);
 
         /**
          * @brief Set test case description
@@ -965,7 +1180,8 @@ class CORRADE_TESTSUITE_EXPORT Tester {
          * Additional text displayed after the test case name. By default
          * the description is empty for non-instanced test cases and instance
          * ID for instanced test cases.
-         * @see @ref setTestName(), @ref setTestCaseName()
+         * @see @ref setTestName(), @ref setTestCaseName(),
+         *      @ref setTestCaseTemplateName()
          */
         void setTestCaseDescription(const std::string& description);
         void setTestCaseDescription(std::string&& description); /**< @overload */
@@ -999,11 +1215,14 @@ class CORRADE_TESTSUITE_EXPORT Tester {
             registerArguments(argc, const_cast<char**>(argv));
         }
 
+        /* Called from all CORRADE_*() macros */
+        static Tester& instance();
+
         /* Called from CORRADE_TEST_MAIN() */
         int exec();
 
         /* Overload needed for testing */
-        int exec(std::ostream* logOutput, std::ostream* errorOutput);
+        int exec(Tester* previousTester, std::ostream* logOutput, std::ostream* errorOutput);
 
         /* Compare two identical types without explicit type specification */
         template<class T> void compare(const char* actual, const T& actualValue, const char* expected, const T& expectedValue) {
@@ -1038,30 +1257,40 @@ class CORRADE_TESTSUITE_EXPORT Tester {
         template<class T> void verify(const char* expression, T&& value);
 
         /* Called from CORRADE_TEST_MAIN() */
-        void registerTest(const char* filename, const char* name);
+        void registerTest(const char* filename, const char* name, bool isDebugBuild = false);
 
         /* Called from CORRADE_SKIP() */
-        void skip(const std::string& message);
-        void skip(const char* message);
+        CORRADE_NORETURN void skip(const std::string& message);
+        CORRADE_NORETURN void skip(const char* message);
 
-    #ifndef DOXYGEN_GENERATING_OUTPUT
-    protected:
-    #endif
         class CORRADE_TESTSUITE_EXPORT ExpectedFailure {
             public:
-                explicit ExpectedFailure(Tester& instance, const std::string& message, bool enabled = true);
-                explicit ExpectedFailure(Tester& instance, std::string&& message, bool enabled = true);
-                explicit ExpectedFailure(Tester& instance, const char* message, bool enabled = true);
+                explicit ExpectedFailure(const std::string& message, bool enabled = true);
+                explicit ExpectedFailure(std::string&& message, bool enabled = true);
+                explicit ExpectedFailure(const char* message, bool enabled = true);
 
                 /* For types with explicit bool conversion */
-                template<class T> explicit ExpectedFailure(Tester& instance, const std::string& message, T&& enabled): ExpectedFailure{instance, message, enabled ? true : false} {}
-                template<class T> explicit ExpectedFailure(Tester& instance, std::string&& message, T&& enabled): ExpectedFailure{instance, message, enabled ? true : false} {}
-                template<class T> explicit ExpectedFailure(Tester& instance, const char* message, T&& enabled): ExpectedFailure{instance, message, enabled ? true : false} {}
+                template<class T> explicit ExpectedFailure(const std::string& message, T&& enabled): ExpectedFailure{message, enabled ? true : false} {}
+                template<class T> explicit ExpectedFailure(std::string&& message, T&& enabled): ExpectedFailure{message, enabled ? true : false} {}
+                template<class T> explicit ExpectedFailure(const char* message, T&& enabled): ExpectedFailure{message, enabled ? true : false} {}
 
                 ~ExpectedFailure();
+        };
+
+        class CORRADE_TESTSUITE_EXPORT IterationPrinter {
+            public:
+                IterationPrinter();
+                ~IterationPrinter();
+
+                Debug debug();
 
             private:
-                Tester& _instance;
+                friend Tester;
+                struct Data;
+
+                /* There's a std::ostringstream inside (yes, ew); don't want
+                   that in a header */
+                Containers::Pointer<Data> _data;
         };
 
         /* Called from all CORRADE_*() verification/skip/xfail macros through
@@ -1102,11 +1331,11 @@ class CORRADE_TESTSUITE_EXPORT Tester {
         };
 
     #ifndef DOXYGEN_GENERATING_OUTPUT
-    protected:
+    public:
     #endif
         class CORRADE_TESTSUITE_EXPORT BenchmarkRunner {
             public:
-                explicit BenchmarkRunner(Tester& instance, TestCase::BenchmarkBegin begin, TestCase::BenchmarkEnd end): _instance(instance), _end{end} {
+                explicit BenchmarkRunner(TestCase::BenchmarkBegin begin, TestCase::BenchmarkEnd end): _instance(Tester::instance()), _end{end} {
                     (_instance.*begin)();
                 }
 
@@ -1116,6 +1345,8 @@ class CORRADE_TESTSUITE_EXPORT Tester {
                 const char* end() const;
 
             private:
+                /* Caching the instance here to avoid potentially slow global
+                   variable access */
                 Tester& _instance;
                 TestCase::BenchmarkEnd _end;
         };
@@ -1132,8 +1363,9 @@ class CORRADE_TESTSUITE_EXPORT Tester {
         static char** _argv;
 
         CORRADE_TESTSUITE_LOCAL void printTestCaseLabel(Debug& out, const char* status, Debug::Color statusColor, Debug::Color labelColor);
+        CORRADE_TESTSUITE_LOCAL void printFileLineInfo(Debug& out);
         void verifyInternal(const char* expression, bool value);
-        void printComparisonMessageInternal(bool equal, const char* actual, const char* expected, void(*printer)(void*, Error&, const char*, const char*), void* printerState);
+        void printComparisonMessageInternal(ComparisonStatusFlags flags, const char* actual, const char* expected, void(*printer)(void*, ComparisonStatusFlags, Debug&, const char*, const char*), void(*saver)(void*, ComparisonStatusFlags, Debug&, const std::string&), void* comparator);
 
         void wallTimeBenchmarkBegin();
         std::uint64_t wallTimeBenchmarkEnd();
@@ -1148,6 +1380,16 @@ class CORRADE_TESTSUITE_EXPORT Tester {
 
         Containers::Pointer<TesterState> _state;
 };
+
+#ifndef DOXYGEN_GENERATING_OUTPUT
+/* Done here because CORRADE_IS_DEBUG_BUILD is defined by the buildsystem when
+   compiling the test (as opposed to defined when compiling this library) */
+#ifdef CORRADE_IS_DEBUG_BUILD
+#define _CORRADE_TESTSUITE_IS_DEBUG_BUILD true
+#else
+#define _CORRADE_TESTSUITE_IS_DEBUG_BUILD false
+#endif
+#endif
 
 /** @hideinitializer
 @brief Create `main()` function for given @ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass
@@ -1165,7 +1407,7 @@ namespace.
     int corradeTestMain(int argc, char** argv) {                            \
         Corrade::TestSuite::Tester::registerArguments(argc, argv);          \
         Class t;                                                            \
-        t.registerTest(__FILE__, #Class);                                   \
+        t.registerTest(__FILE__, #Class, _CORRADE_TESTSUITE_IS_DEBUG_BUILD); \
         return t.exec();                                                    \
     }
 #else
@@ -1173,26 +1415,13 @@ namespace.
     int main(int argc, char** argv) {                                       \
         Corrade::TestSuite::Tester::registerArguments(argc, argv);          \
         Class t;                                                            \
-        t.registerTest(__FILE__, #Class);                                   \
+        t.registerTest(__FILE__, #Class, _CORRADE_TESTSUITE_IS_DEBUG_BUILD); \
         return t.exec();                                                    \
     }
 #endif
 
-#ifndef DOXYGEN_GENERATING_OUTPUT
-#ifndef CORRADE_TARGET_ANDROID
-#define _CORRADE_REGISTER_TEST_CASE()                                       \
-    Tester::registerTestCase(__func__, __LINE__);
-#else
-/* C++11 standard __func__ on Android behaves like GCC's __PRETTY_FUNCTION__,
-   while GCC's __FUNCTION__ does the right thing.. I wonder -- do they have
-   *any* tests for libc at all?! */
-#define _CORRADE_REGISTER_TEST_CASE()                                       \
-    Tester::registerTestCase(__FUNCTION__, __LINE__);
-#endif
-#endif
-
 /** @hideinitializer
-@brief Verify an expression in @ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass
+@brief Verify an expression in a test case
 
 If the expression is not true, the expression is printed and execution of given
 test case is terminated. Example usage:
@@ -1205,16 +1434,25 @@ It is possible to use @ref CORRADE_VERIFY() also on objects with
 
 @snippet TestSuite.cpp CORRADE_VERIFY-explicit
 
+This macro is meant to be called in a test case in a
+@ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass. It's possible to
+also call it in a helper function or lambda called from inside a test case,
+however note that the very first call to a `CORRADE_*()` macro captures the
+caller function name for the test output, which may not be desired when being
+in a helper function or a lambda. To circumvent that, either call a dummy
+@cpp CORRADE_VERIFY(true) @ce at the top of your test case, or explicitly call
+@ref Corrade::TestSuite::Tester::setTestCaseName() "setTestCaseName()" with
+either a hardcoded name or e.g. @ref CORRADE_FUNCTION.
 @see @ref CORRADE_COMPARE(), @ref CORRADE_COMPARE_AS()
 */
 #define CORRADE_VERIFY(expression)                                          \
     do {                                                                    \
-        _CORRADE_REGISTER_TEST_CASE();                                      \
-        Tester::verify(#expression, expression);                            \
+        Corrade::TestSuite::Tester::instance().registerTestCase(CORRADE_FUNCTION, __LINE__); \
+        Corrade::TestSuite::Tester::instance().verify(#expression, expression); \
     } while(false)
 
 /** @hideinitializer
-@brief Compare two values in @ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass
+@brief Compare two values in a test case
 
 If the values are not the same, they are printed for comparison and execution
 of given test case is terminated. Example usage:
@@ -1226,84 +1464,103 @@ Comparison of floating-point types is by default done as a fuzzy-compare, see
 @ref Corrade::TestSuite::Comparator<double> "TestSuite::Comparator<double>" for
 details.
 
-Note that this macro is usable only if given type implements equality
-comparison operators and is printable via @ref Corrade::Utility::Debug "Utility::Debug".
-@see @ref CORRADE_VERIFY(), @ref CORRADE_COMPARE_AS()
+Note that this macro is usable only if the type passed to it is printable via
+@ref Corrade::Utility::Debug "Utility::Debug". It is meant to be called in a
+test case in a @ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass.
+It's possible to also call it in a helper function or lambda called from inside
+a test case with some caveats. See @ref CORRADE_VERIFY() for details.
+@see @ref CORRADE_COMPARE_AS()
 */
 #define CORRADE_COMPARE(actual, expected)                                   \
     do {                                                                    \
-        _CORRADE_REGISTER_TEST_CASE();                                      \
-        Tester::compare(#actual, actual, #expected, expected);              \
+        Corrade::TestSuite::Tester::instance().registerTestCase(CORRADE_FUNCTION, __LINE__); \
+        Corrade::TestSuite::Tester::instance().compare(#actual, actual, #expected, expected); \
     } while(false)
 
 /** @hideinitializer
-@brief Compare two values in @ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass with explicitly specified type
+@brief Compare two values in a test case with explicitly specified type
 
-If the values are not the same, they are printed for comparison and execution
-of given test case is terminated. Example usage:
+Casts the values to a specified typ first and then continues the same as
+@ref CORRADE_COMPARE(). If the values are not the same, they are printed for
+comparison and execution of given test case is terminated. Example usage:
 
 @snippet TestSuite.cpp CORRADE_COMPARE_AS
 
-See also @ref Corrade::TestSuite::Comparator "TestSuite::Comparator" class documentation
-for example of more involved comparisons.
-
 Note that this macro is usable only if the type passed to it is printable via
-@ref Corrade::Utility::Debug "Utility::Debug" and is convertible to / usable
-with given comparator type.
-@see @ref CORRADE_VERIFY(), @ref CORRADE_COMPARE(), @ref CORRADE_COMPARE_WITH()
+@ref Corrade::Utility::Debug "Utility::Debug" and is convertible to given type.
+@ref CORRADE_COMPARE_AS() and @ref CORRADE_COMPARE_WITH() can be also used for
+advanced comparisons with custom comparators, see
+@ref TestSuite-Tester-advanced-comparisons for more information.
+
+This macro is meant to be called in a test case in a
+@ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass. It's possible
+to also call it in a helper function or lambda called from inside a test case
+with some caveats. See @ref CORRADE_VERIFY() for details.
+@see @ref CORRADE_VERIFY(),
+    @ref Corrade::TestSuite::Comparator "TestSuite::Comparator"
 */
 #ifdef DOXYGEN_GENERATING_OUTPUT
 #define CORRADE_COMPARE_AS(actual, expected, Type...)
 #else
 #define CORRADE_COMPARE_AS(actual, expected, ...)                           \
     do {                                                                    \
-        _CORRADE_REGISTER_TEST_CASE();                                      \
-        Tester::compareAs<__VA_ARGS__>(#actual, actual, #expected, expected); \
+        Corrade::TestSuite::Tester::instance().registerTestCase(CORRADE_FUNCTION, __LINE__); \
+        Corrade::TestSuite::Tester::instance().compareAs<__VA_ARGS__>(#actual, actual, #expected, expected); \
     } while(false)
 #endif
 
 /** @hideinitializer
-@brief Compare two values in @ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass with explicitly specified comparator
+@brief Compare two values in a test case with explicitly specified comparator
 
-If the values are not the same, they are printed for comparison and execution
-of given test case is terminated. Example usage:
+A variant of @ref CORRADE_COMPARE_AS() that takes a comparator instance instead
+of type, useful when you need to pass additional parameters to the comparator.
+See @ref TestSuite-Tester-advanced-comparisons for a high-level introduction
+and an example. If the comparison fails, a comparator-specific diagnostic is
+printed and execution of given test case is terminated. Example usage:
 
 @snippet TestSuite.cpp CORRADE_COMPARE_WITH
 
-See @ref Corrade::TestSuite::Comparator "TestSuite::Comparator" class
-documentation for more information.
+Note that this macro is usable only if the type passed to it is compatible with
+given comparator, and in some cases the comparator may require the type to also
+be printable with @ref Corrade::Utility::Debug "Utility::Debug".
 
-Note that this macro is usable only if the type passed to it is printable via
-@ref Corrade::Utility::Debug "Utility::Debug" and is usable with given
-comparator type.
-@see @ref CORRADE_VERIFY(), @ref CORRADE_COMPARE(), @ref CORRADE_COMPARE_AS()
+This macro is meant to be called in a test case in
+a @ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass. It's possible
+to also call it in a helper function or lambda called from inside a test case
+with some caveats. See @ref CORRADE_VERIFY() for details.
+@see @ref CORRADE_VERIFY(), @ref CORRADE_COMPARE(), ,
+    @ref Corrade::TestSuite::Comparator "TestSuite::Comparator"
 */
 #define CORRADE_COMPARE_WITH(actual, expected, comparatorInstance)          \
     do {                                                                    \
-        _CORRADE_REGISTER_TEST_CASE();                                      \
-        Tester::compareWith((comparatorInstance).comparator(), #actual, actual, #expected, expected); \
+        Corrade::TestSuite::Tester::instance().registerTestCase(CORRADE_FUNCTION, __LINE__); \
+        Corrade::TestSuite::Tester::instance().compareWith((comparatorInstance).comparator(), #actual, actual, #expected, expected); \
     } while(false)
 
 /** @hideinitializer
-@brief Expect failure in all following checks in the same scope
+@brief Expect failure in a test case in all following checks in the same scope
 @param message Message which will be printed into output as indication of
     expected failure
 
 Expects failure in all following @ref CORRADE_VERIFY(), @ref CORRADE_COMPARE()
 and @ref CORRADE_COMPARE_AS() checks in the same scope. In most cases it will
 be until the end of the function, but you can limit the scope by placing
-relevant checks in a separate block:
+relevant checks in a separate block. If any check following the macro in the
+same scope passes, an error will be printed to output.
 
 @snippet TestSuite.cpp CORRADE_EXPECT_FAIL
 
-If any of the following checks passes, an error will be printed to output.
+This macro is meant to be called in a test case in a
+@ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass. It's possible to
+also call it in a helper function or lambda called from inside a test case with
+some caveats. See @ref CORRADE_VERIFY() for details.
 @see @ref CORRADE_EXPECT_FAIL_IF()
 */
 #define CORRADE_EXPECT_FAIL(message)                                        \
-    Tester::ExpectedFailure _CORRADE_HELPER_PASTE(expectedFailure, __LINE__)(*this, message)
+    Corrade::TestSuite::Tester::ExpectedFailure _CORRADE_HELPER_PASTE(expectedFailure, __LINE__){message}
 
 /** @hideinitializer
-@brief Conditionally expect failure in all following checks in the same scope
+@brief Conditionally expect failure in a test case in all following checks in the same scope
 @param message      Message which will be printed into output as indication of
     expected failure
 @param condition    The failure is expected only if the condition evaluates to
@@ -1322,12 +1579,17 @@ The solution is to use @cpp CORRADE_EXPECT_FAIL_IF() @ce:
 Similarly to @ref CORRADE_VERIFY(), it is possible to use
 @ref CORRADE_EXPECT_FAIL_IF() also on objects with @cpp explicit operator bool @ce
 without doing explicit conversion (e.g. using @cpp !! @ce).
+
+This macro is meant to be called in a test case in a
+@ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass. It's possible to
+also call it in a helper function or lambda called from inside a test case with
+some caveats. See @ref CORRADE_VERIFY() for details.
 */
 #define CORRADE_EXPECT_FAIL_IF(condition, message)                          \
-    Tester::ExpectedFailure _CORRADE_HELPER_PASTE(expectedFailure, __LINE__)(*this, message, condition)
+    Corrade::TestSuite::Tester::ExpectedFailure _CORRADE_HELPER_PASTE(expectedFailure, __LINE__)(message, condition)
 
 /** @hideinitializer
-@brief Skip test case
+@brief Skip a test case
 @param message Message which will be printed into output as indication of
     skipped test
 
@@ -1335,20 +1597,49 @@ Skips all following checks in given test case. Useful for e.g. indicating that
 given feature can't be tested on given platform:
 
 @snippet TestSuite.cpp CORRADE_SKIP
+
+This macro is meant to be called in a test case in a
+@ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass. It's possible to
+also call it in a helper function or lambda called from inside a test case with
+some caveats. See @ref CORRADE_VERIFY() for details.
 */
 #define CORRADE_SKIP(message)                                               \
     do {                                                                    \
-        _CORRADE_REGISTER_TEST_CASE();                                      \
-        Tester::skip(message);                                              \
+        Corrade::TestSuite::Tester::instance().registerTestCase(CORRADE_FUNCTION, __LINE__); \
+        Corrade::TestSuite::Tester::instance().skip(message); \
     } while(false)
 
 /** @hideinitializer
-@brief Run a benchmark
+@brief Annotate an iteration in a test case
+@param ...      Value to print in a failure diagnostic
+@m_since{2020,06}
+
+Annotates loop iterations in order to provide clearer failure diagnostics next
+to the file/line info. Doesn't print anything if there was no failure. Applies
+to all following @ref CORRADE_VERIFY(), @ref CORRADE_COMPARE() etc. checks in
+the same scope, multiple calls in the same scope (or nested scopes) are joined
+together. See @ref TestSuite-Tester-iteration-annotations for an example.
+
+This macro is meant to be called in a test case in a
+@ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass. It's possible to
+also call it in a helper function or lambda called from inside a test case with
+some caveats. See @ref CORRADE_VERIFY() for details.
+*/
+#define CORRADE_ITERATION(...)                                              \
+    Corrade::TestSuite::Tester::IterationPrinter _CORRADE_HELPER_PASTE(iterationPrinter, __LINE__); \
+    do {                                                                    \
+        Corrade::TestSuite::Tester::instance().registerTestCase(CORRADE_FUNCTION, __LINE__); \
+        _CORRADE_HELPER_PASTE(iterationPrinter, __LINE__).debug() << __VA_ARGS__; \
+    } while(false)
+
+/** @hideinitializer
+@brief Run a benchmark in a test case
 
 Benchmarks the following block or expression by measuring @p batchSize
-iterations of given block. Use in conjunction with
+iterations of given block. Desired use is in conjunction with
 @ref Corrade::TestSuite::Tester::addBenchmarks() "TestSuite::Tester::addBenchmarks()"
-and others. Only one such loop can be in a function to achieve proper result.
+and friends, see @ref TestSuite-Tester-benchmark for an introduction and an
+example. Only one such loop can be in a function to achieve proper result.
 Please note that there need to be additional measures in order to prevent the
 optimizer from removing the benchmark code such as assigning to a
 @cpp volatile @ce variable or combining all the results to a variable, which is
@@ -1358,19 +1649,24 @@ then being used outside of the loop.
 
 The resulting measured value is divided by @p batchSize to represent cost of
 one iteration.
+
+This macro is meant to be called in a test case in a
+@ref Corrade::TestSuite::Tester "TestSuite::Tester" subclass. It's possible to
+also call it in a helper function or lambda called from inside a test case with
+some caveats. See @ref CORRADE_VERIFY() for details.
 */
 #ifndef _MSC_VER
 #define CORRADE_BENCHMARK(batchSize)                                        \
-    _CORRADE_REGISTER_TEST_CASE();                                          \
-    for(CORRADE_UNUSED auto&& _CORRADE_HELPER_PASTE(benchmarkIteration, __func__): Tester::createBenchmarkRunner(batchSize))
+    Corrade::TestSuite::Tester::instance().registerTestCase(CORRADE_FUNCTION, __LINE__); \
+    for(CORRADE_UNUSED auto&& _CORRADE_HELPER_PASTE(benchmarkIteration, __func__): Corrade::TestSuite::Tester::instance().createBenchmarkRunner(batchSize))
 #else
 /* MSVC warns about the benchmarkIteration variable being set but unused, no
    way around that except than disabling the warning */
 #define CORRADE_BENCHMARK(batchSize)                                        \
-    _CORRADE_REGISTER_TEST_CASE();                                          \
+    Corrade::TestSuite::Tester::instance().registerTestCase(CORRADE_FUNCTION, __LINE__); \
     for(                                                                    \
         __pragma(warning(push)) __pragma(warning(disable: 4189))            \
-        CORRADE_UNUSED auto&& _CORRADE_HELPER_PASTE(benchmarkIteration, __func__): Tester::createBenchmarkRunner(batchSize) \
+        CORRADE_UNUSED auto&& _CORRADE_HELPER_PASTE(benchmarkIteration, __func__): Corrade::TestSuite::Tester::instance().createBenchmarkRunner(batchSize) \
         __pragma(warning(pop))                                              \
     )
 #endif
@@ -1379,16 +1675,28 @@ template<class T, class U, class V> void Tester::compareWith(Comparator<T>& comp
     /* Store (references to) possibly implicitly-converted values,
        otherwise the implicit conversion would when passing them to operator(),
        causing dead memory access later in printErrorMessage() */
-    const typename Implementation::ComparatorTraits<T>::ActualType& actualValueInExpectedActualType = actualValue;
-    const typename Implementation::ComparatorTraits<T>::ExpectedType& expectedValueInExpectedExpectedType = expectedValue;
+    const typename Implementation::ComparatorTraits<T, typename std::decay<U>::type, typename std::decay<V>::type>::ActualType& actualValueInExpectedActualType = actualValue;
+    const typename Implementation::ComparatorTraits<T, typename std::decay<U>::type, typename std::decay<V>::type>::ExpectedType& expectedValueInExpectedExpectedType = expectedValue;
 
-    /* If the comparison succeeded or the failure is expected, done */
-    bool equal = comparator(actualValueInExpectedActualType, expectedValueInExpectedExpectedType);
+    /* Compare and then print the message, if needed */
+    ComparisonStatusFlags status =
+        #ifdef CORRADE_BUILD_DEPRECATED
+        Implementation::comparisonStatusFlags(
+        #endif
+            comparator(actualValueInExpectedActualType, expectedValueInExpectedExpectedType)
+        #ifdef CORRADE_BUILD_DEPRECATED
+        )
+        #endif
+        ;
 
-    printComparisonMessageInternal(equal, actual, expected,
-        [](void* state, Error& out, const char* actual, const char* expected) {
-            static_cast<Comparator<T>*>(state)->printErrorMessage(out, actual, expected);
-        }, &comparator);
+    printComparisonMessageInternal(status, actual, expected,
+        [](void* comparator, ComparisonStatusFlags flags, Debug& out, const char* actual, const char* expected) {
+            #ifndef CORRADE_BUILD_DEPRECATED
+            static_cast<Comparator<T>*>(comparator)->printMessage(flags, out, actual, expected);
+            #else
+            Implementation::printMessage<Comparator<T>>(*static_cast<Comparator<T>*>(comparator), flags, out, actual, expected);
+            #endif
+        }, Implementation::diagnosticSaver<T>(), &comparator);
 }
 
 template<class T> void Tester::verify(const char* expression, T&& value) {

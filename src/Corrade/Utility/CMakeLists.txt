@@ -2,7 +2,7 @@
 #   This file is part of Corrade.
 #
 #   Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-#               2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+#               2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a
 #   copy of this software and associated documentation files (the "Software"),
@@ -34,14 +34,20 @@ if(WITH_UTILITY)
         System.cpp)
 
     set(CorradeUtility_GracefulAssert_SRCS
+        Algorithms.cpp
         Arguments.cpp
         ConfigurationGroup.cpp
         Format.cpp
         Resource.cpp
         String.cpp
-        Unicode.cpp)
+        Unicode.cpp
+
+        ../Containers/ArrayTuple.cpp
+        ../Containers/String.cpp
+        ../Containers/StringView.cpp)
 
     set(CorradeUtility_HEADERS
+        Algorithms.h
         Arguments.h
         AbstractHash.h
         Assert.h
@@ -52,6 +58,7 @@ if(WITH_UTILITY)
         DebugStl.h
         Directory.h
         Endianness.h
+        EndiannessBatch.h
         Format.h
         FormatStl.h
         Macros.h
@@ -72,7 +79,8 @@ if(WITH_UTILITY)
         VisibilityMacros.h
         visibility.h)
 
-    set(CorradeUtility_PRIVATE_HEADERS )
+    set(CorradeUtility_PRIVATE_HEADERS
+        Implementation/Resource.h)
 
     # Unix-specific / non-RT-Windows-specific functionality. Also Emscripten.
     if(CORRADE_TARGET_UNIX OR (CORRADE_TARGET_WINDOWS AND NOT CORRADE_TARGET_WINDOWS_RT) OR CORRADE_TARGET_EMSCRIPTEN)
@@ -92,10 +100,18 @@ if(WITH_UTILITY)
     if(CORRADE_TARGET_ANDROID)
         list(APPEND CorradeUtility_SRCS AndroidLogStreamBuffer.cpp)
         list(APPEND CorradeUtility_HEADERS AndroidLogStreamBuffer.h)
+    endif()
 
-        if(CORRADE_BUILD_DEPRECATED)
-            list(APPEND CorradeUtility_HEADERS AndroidStreamBuffer.h)
-        endif()
+    # Functionality specific to static Windows builds
+    if(CORRADE_TARGET_WINDOWS AND NOT CORRADE_TARGET_WINDOWS_RT AND CORRADE_BUILD_STATIC)
+        list(APPEND CorradeUtility_SRCS Implementation/WindowsWeakSymbol.cpp)
+        list(APPEND CorradeUtility_PRIVATE_HEADERS Implementation/WindowsWeakSymbol.h)
+    endif()
+
+    # Functionality specific to Windows builds
+    if(CORRADE_TARGET_WINDOWS)
+        list(APPEND CorradeUtility_SRCS Implementation/WindowsError.cpp)
+        list(APPEND CorradeUtility_PRIVATE_HEADERS Implementation/WindowsError.h)
     endif()
 
     # Objects shared between main and test library
@@ -133,9 +149,13 @@ if(WITH_UTILITY)
         set_target_properties(CorradeUtility PROPERTIES POSITION_INDEPENDENT_CODE ON)
     endif()
 
+    # Directory::libraryLocation() needs this
+    if(CORRADE_TARGET_UNIX)
+        target_link_libraries(CorradeUtility PUBLIC ${CMAKE_DL_LIBS})
+    endif()
     # AndroidLogStreamBuffer class needs to be linked to log library
     if(CORRADE_TARGET_ANDROID)
-        target_link_libraries(CorradeUtility log)
+        target_link_libraries(CorradeUtility PUBLIC log)
     endif()
 
     install(TARGETS CorradeUtility
@@ -157,28 +177,21 @@ if(WITH_UTILITY)
 
         target_link_libraries(CorradeUtilityTestLib CorradeUtility)
 
-        # On Windows we need to install first and then run the tests to avoid "DLL
-        # not found" hell, thus we need to install this too
-        if(CORRADE_TARGET_WINDOWS AND NOT CMAKE_CROSSCOMPILING AND NOT BUILD_STATIC)
-            install(TARGETS CorradeUtilityTestLib
-                RUNTIME DESTINATION ${CORRADE_BINARY_INSTALL_DIR}
-                LIBRARY DESTINATION ${CORRADE_LIBRARY_INSTALL_DIR}
-                ARCHIVE DESTINATION ${CORRADE_LIBRARY_INSTALL_DIR})
-        endif()
-
         add_subdirectory(Test)
     endif()
 
-    # Corrade::Utility and Corrade::rc target alias for superprojects
+    # Corrade::Utility target alias for superprojects
     add_library(Corrade::Utility ALIAS CorradeUtility)
 endif()
 
-# TODO: In the future it might be possible to not require external corrade-rc
-# when generating WinRT targets by setting
+# TODO: https://cmake.org/pipermail/cmake-developers/2015-January/024242.html
+# mentions that in the future it might be possible to not require external
+# corrade-rc when generating WinRT targets by setting
 #  set_target_properties(corrade-rc PROPERTIES VS_WINRT_COMPONENT OFF)
-# Then the condition would be if(NOT CMAKE_CROSSCOMPILING OR CORRADE_TARGET_WINDOWS_RT)
-# and similar change would be in UseCorrade.cmake. More info in this thread:
-#  https://cmake.org/pipermail/cmake-developers/2015-January/024242.html
+# Then this would be if(NOT CMAKE_CROSSCOMPILING OR CORRADE_TARGET_WINDOWS_RT).
+# However, it seems like this feature never materialized, as doing this will
+# result in corrade-rc that's looking for vcruntime140_app.dll in order to be
+# run. Last checked: Nov 2019.
 if(NOT CMAKE_CROSSCOMPILING)
     # Sources for standalone corrade-rc
     set(CorradeUtilityRc_SRCS
@@ -187,11 +200,24 @@ if(NOT CMAKE_CROSSCOMPILING)
         Directory.cpp
         Configuration.cpp
         ConfigurationGroup.cpp
+        Format.cpp
         Resource.cpp
-        String.cpp)
+        String.cpp
+
+        ../Containers/String.cpp
+        ../Containers/StringView.cpp)
     if(CORRADE_TARGET_WINDOWS)
-        # Needed for dealing with the design failure that's called "Unicode WINAPI"
-        list(APPEND CorradeUtilityRc_SRCS Unicode.cpp)
+        list(APPEND CorradeUtilityRc_SRCS
+            # Needed for dealing with the design failure that's called "Unicode WINAPI"
+            Unicode.cpp
+            Implementation/WindowsError.cpp)
+
+        # Functionality specific to static Windows builds. Not really needed
+        # for corrade-rc as it doesn't load any plugins yet but easier than
+        # having a special handling.
+        if(NOT CORRADE_TARGET_WINDOWS_RT)
+            list(APPEND CorradeUtilityRc_SRCS Implementation/WindowsWeakSymbol.cpp)
+        endif()
     endif()
 
     # Having a tool used during a build depend on a shared library brings a lot
@@ -210,10 +236,15 @@ if(NOT CMAKE_CROSSCOMPILING)
         target_compile_definitions(corrade-rc PRIVATE "CORRADE_BUILD_STATIC")
     else()
         add_executable(corrade-rc rc.cpp)
-        target_link_libraries(corrade-rc CorradeUtility)
+        target_link_libraries(corrade-rc PRIVATE CorradeUtility)
+    endif()
+    # Directory::libraryLocation() needs this
+    if(CORRADE_TARGET_UNIX)
+        target_link_libraries(corrade-rc PRIVATE ${CMAKE_DL_LIBS})
     endif()
     set_target_properties(corrade-rc PROPERTIES FOLDER "Corrade/Utility")
     install(TARGETS corrade-rc DESTINATION ${CORRADE_BINARY_INSTALL_DIR})
 
+    # Corrade::rc target alias for superprojects
     add_executable(Corrade::rc ALIAS corrade-rc)
 endif()

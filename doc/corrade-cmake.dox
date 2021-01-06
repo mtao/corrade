@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -27,7 +27,9 @@ namespace Corrade {
 /** @page corrade-cmake Using Corrade with CMake
 @brief Guide how to find and use Corrade with CMake build system
 
-@m_keywords{CMake}
+@m_keywords{CMake Subproject}
+@m_keyword{CMake subproject,,}
+@m_keyword{corrade_add_test,corrade_add_test(),2}
 @m_keyword{corrade_add_resource,corrade_add_resource(),2}
 @m_keyword{corrade_add_plugin,corrade_add_plugin(),2}
 @m_keyword{corrade_add_static_plugin,corrade_add_static_plugin(),2}
@@ -35,19 +37,86 @@ namespace Corrade {
 
 @tableofcontents
 
-Corrade uses CMake build system for both building and integration into your
-projects. The logic is in module `FindCorrade.cmake` distributed with the
-library in `modules/` directory, you are encouraged to copy it into your
-project and add path to the file to `CMAKE_MODULE_PATH`. Otherwise, if CMake
-won't be able to find this file in predefined locations, it will error out even
-if Corrade might be installed on the system.
+Corrade uses CMake as a primary build system for both building and integration
+into your projects.
 
-Note that the module file is updated as the library evolves, you are encouraged
-to update your copy from time to time to avoid strange building issues.
+@section corrade-cmake-installed Using Corrade that was externally built and installed
+
+The main logic is in the [FindCorrade.cmake](https://github.com/mosra/corrade/blob/master/modules/FindCorrade.cmake)
+module distributed with the engine in the `modules/` directory, you are
+encouraged to copy it into your project and add path to the file to
+`CMAKE_MODULE_PATH`:
+
+@code{.cmake}
+# Path where FindCorrade.cmake can be found, adapt as needed
+set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/modules/" ${CMAKE_MODULE_PATH})
+
+find_package(Corrade REQUIRED ...) # see below
+@endcode
+
+Otherwise, if CMake won't be able to find this file in predefined locations, it
+will error out even if Corrade might be installed on the system. There are
+other Find modules that you might need for particular features or platforms,
+see the @ref corrade-cmake-modules "full list below". Each library that needs
+one of the extra modules also mentions the requirement in its documentation.
+Note that the module files areupdated as the library evolves, you are
+encouraged to update your copies from time to time to avoid strange building
+issues.
 
 If you installed the library to non-standard location (other than `/usr`, e.g.
 `/home/xyz/projects`), set `CMAKE_PREFIX_PATH` to that directory to help CMake
 find it.
+
+@section corrade-cmake-subproject Using Corrade as a CMake subproject
+
+A self-contained alternative to a shared instance of the libraries, is to add
+the repositories directly into your project (as Git submodules, bundling
+downloaded archives etc.), and then to use CMake's @cb{.cmake} add_subdirectory() @ce
+command to compile them on demand. With this approach, you don't need to care
+about manually installing Corrade, however the usual tradeoffs when bundling
+code apply --- slower full rebuilds, IDEs having more to parse etc. In this
+case, @ref building-corrade-features "build-time options" can be @cmake set() @ce
+before calling @cmake add_subdirectory() @ce. Note that, unless you require
+CMake 3.13 at least, it's necessary to use the `CACHE ... FORCE` arguments
+[in order to have the options set properly](https://cmake.org/cmake/help/latest/policy/CMP0077.html).
+For example:
+
+@code{.cmake}
+set(WITH_TESTSUITE OFF CACHE BOOL "" FORCE) # disable what you don't use
+add_subdirectory(corrade EXCLUDE_FROM_ALL) # so only things you use are built
+
+find_package(Corrade REQUIRED ...) # see below
+@endcode
+
+Note that the use of @cb{.cmake} add_subdirectory() @ce does not replace the
+configuration necessary for an installed version of Corrade. The `modules/`
+directory and calls to @cb{.cmake} find_package() @ce are needed in both the
+installed and the subproject case for a properly configured environment.
+
+To simplify your project setup, the subproject globally configures
+@m_class{m-doc-external} [CMAKE_RUNTIME_OUTPUT_DIRECTORY](https://cmake.org/cmake/help/latest/variable/CMAKE_RUNTIME_OUTPUT_DIRECTORY.html)
+and friends to `<CONFIG>/bin` / `<CONFIG>/lib` directories inside your build
+directory. This makes the subproject workflow easier when dynamically-loaded
+plugins are involved; and on Windows it makes it possible to run built
+executables without having to do a @cb{.sh} $PATH @ce setup for dependency
+DLLs. If your project already configures `CMAKE_{RUNTIME,LIBRARY,ARCHIVE}_OUTPUT_DIRECTORY`,
+those will get used instead (and you can also set your own output directories
+* *after* the @cb{.cmake} add_subdirectory() @ce call, which will make Corrade
+keep the above). If you want to disable this behavior altogether and keep
+all executables and libraries in their implicit locations, set those variables
+to an empty string (as opposed to nothing at all, which is the same as if the
+variable is not set) --- Corrade will detect and respect that:
+
+@code{.cmake}
+# I'm happy with having binaries scattered around the build dir
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "")
+
+add_subdirectory(corrade EXCLUDE_FROM_ALL)
+@endcode
+
+@section corrade-cmake-find-module Finding the package and its components
 
 Basic usage is:
 
@@ -61,6 +130,9 @@ following:
 -   `Corrade_FOUND` --- Whether the base library was found
 -   `CORRADE_LIB_SUFFIX_MODULE` --- Path to `CorradeLibSuffix.cmake` module,
     which tries to autodetect value of `LIB_SUFFIX` variable
+-   `CORRADE_INCLUDE_INSTALL_PREFIX` --- Prefix where to put
+    platform-independent include and other files, defaults to `.`. If a
+    relative path is used, it's relative to `CMAKE_INSTALL_PREFIX`.
 
 This command will try to find only the base library, not the optional
 components, which are:
@@ -87,8 +159,8 @@ found. If both debug and release libraries are found, proper version is chosen
 based on actual build configuration of the project (i.e. `Debug` build is
 linked to debug libraries, `Release` build to release libraries).
 
-Corrade conditionally defines `CORRADE_IS_DEBUG_BUILD` preprocessor variable in
-case build configuration is `Debug` (not Corrade itself, but build
+Corrade conditionally defines the @ref CORRADE_IS_DEBUG_BUILD preprocessor
+variable in case build configuration is `Debug` (not Corrade itself, but build
 configuration of the project using it). Useful e.g. for selecting proper plugin
 directory.
 
@@ -96,10 +168,10 @@ Corrade defines the following custom target properties:
 
 -   `CORRADE_CXX_STANDARD` --- C++ standard to require when *compiling* given
     target. Does nothing if `CMAKE_CXX_FLAGS` already contains particular
-    standard setting flag or if given target contains `CXX_STANDARD` property.
-    Allowed value is `11`, `14`, `17` or `20`. See also the
-    @ref CORRADE_CXX_STANDARD C++ macro, which allows for checking of used C++
-    standard in a portable way.
+    standard setting flag or if given target contains either of the
+    `CXX_STANDARD` or `COMPILE_FEATURES` properties. Allowed value is `11`,
+    `14`, `17` or `20`. See also the @ref CORRADE_CXX_STANDARD C++ macro, which
+    allows for checking of used C++ standard in a portable way.
 -   `INTERFACE_CORRADE_CXX_STANDARD` --- C++ standard to require when *using*
     given target. Does nothing if `CMAKE_CXX_FLAGS` already contains particular
     standard setting flag or if given target contains `CMAKE_CXX_STANDARD`
@@ -120,6 +192,8 @@ Features of found Corrade library are exposed in these variables, they are
 also available as preprocessor variables if you include
 @ref Corrade/Corrade.h "Corrade/Corrade.h":
 
+-   `CORRADE_MSVC2019_COMPATIBILITY` --- Defined if compiled with compatibility
+    mode for MSVC 2019
 -   `CORRADE_MSVC2017_COMPATIBILITY` --- Defined if compiled with compatibility
     mode for MSVC 2017
 -   `CORRADE_MSVC2015_COMPATIBILITY` --- Defined if compiled with compatibility
@@ -128,6 +202,12 @@ also available as preprocessor variables if you include
     included
 -   `CORRADE_BUILD_STATIC` --- Defined if compiled as static libraries. Default
     are shared libraries.
+-   `CORRADE_BUILD_STATIC_UNIQUE_GLOBALS` --- Defined if static libraries keep
+    their globals unique even across different shared libraries. Enabled by
+    default for static builds.
+-   `CORRADE_BUILD_MULTITHREADED` --- Defined if compiled in a way that makes
+    it possible to safely use certain Corrade features simultaneously in
+    multiple threads.
 -   `CORRADE_TARGET_UNIX` --- Defined if compiled for some Unix flavor (Linux,
     BSD, macOS, iOS, Android, ...)
 -   `CORRADE_TARGET_APPLE` --- Defined if compiled for Apple platforms
@@ -137,6 +217,16 @@ also available as preprocessor variables if you include
 -   `CORRADE_TARGET_WINDOWS_RT` --- Defined if compiled for Windows RT
 -   `CORRADE_TARGET_EMSCRIPTEN` --- Defined if compiled for Emscripten
 -   `CORRADE_TARGET_ANDROID` --- Defined if compiled for Android
+-   `CORRADE_TARGET_GCC` --- Defined if compiling with GCC or GCC-compatible
+    Clang
+-   `CORRADE_TARGET_CLANG` --- Defined if compiling with Clang or any of its
+    variants
+-   `CORRADE_TARGET_APPLE_CLANG` --- Defined if compiling with Apple's Clang
+-   `CORRADE_TARGET_CLANG_CL` --- Defined if compiling with Clang-CL (Clang
+    with a MSVC frontend)
+-   `CORRADE_TARGET_MSVC` --- Defined if compiling with MSVC or Clang with a
+    MSVC frontend
+-   `CORRADE_TARGET_MINGW` --- Defined if compiling under MinGW
 -   `CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT` --- Defined if
     @ref PluginManager doesn't support dynamic plugin loading due to platform
     limitations
@@ -154,25 +244,19 @@ because the meaning is unclear with projects that mix more different C++
 standards / STL implementations or on platforms with multi-architecture
 binaries.
 
-Workflows without imported targets are deprecated and the following variables
-are included just for backwards compatibility and only if
-@ref CORRADE_BUILD_DEPRECATED is enabled:
-
--   `CORRADE_CXX_FLAGS` --- Additional pedantic compile flags. Use
-    `CORRADE_USE_PEDANTIC_FLAGS` per-target property or
-    `CORRADE_PEDANTIC_COMPILER_DEFINITIONS` / `CORRADE_PEDANTIC_COMPILER_OPTIONS`
-    list variables instead.
-
 Note that [each namespace](namespaces.html) contains more detailed guide how to
 use given library with CMake.
 
 @section corrade-cmake-modules Other CMake modules
 
-The `modules/` directory contains more useful CMake modules:
+The `modules/` directory of Corrade sources contains more useful CMake modules.
+If a library requires presence of any of these, it mentions them in its usage
+documentation.
 
--   `FindNodeJs.cmake` --- CMake module for finding Node.js. Copy this to your
-    module directory if you want to run @ref TestSuite unit tests when building
-    for @ref CORRADE_TARGET_EMSCRIPTEN "Emscripten".
+-   [FindNodeJs.cmake](https://github.com/mosra/corrade/blob/master/modules/FindNodeJs.cmake)
+    --- CMake module for finding Node.js. Copy this to your module directory if
+    you want to run @ref TestSuite unit tests when building for
+    @ref CORRADE_TARGET_EMSCRIPTEN "Emscripten".
 
 @section corrade-cmake-functions Macros and functions
 
@@ -188,7 +272,8 @@ corrade_add_test(<test name>
 
 Test name is also executable name. You can use `LIBRARIES` to specify libraries
 to link with instead of using @cmake target_link_libraries() @ce. The
-`Corrade::TestSuite` target is linked automatically to each test. Note that the
+`Corrade::TestSuite` target is linked automatically to each test, together with
+@ref main "Corrade::Main" for improved experience on Windows. Note that the
 @cmake enable_testing() @ce function must be called explicitly. Arguments
 passed after `ARGUMENTS` will be appended to the test command line. `ARGUMENTS`
 are supported everywhere except when @ref CORRADE_TESTSUITE_TARGET_XCTEST is
@@ -209,6 +294,11 @@ Unless @ref CORRADE_TESTSUITE_TARGET_XCTEST is set, test cases run on an
 @ref CORRADE_TARGET_IOS "iOS" device are created as bundles with bundle
 identifier set to CMake project name by default. Use the cache variable
 `CORRADE_TESTSUITE_BUNDLE_IDENTIFIER_PREFIX` to change it to something else.
+
+On @ref CORRADE_TARGET_EMSCRIPTEN "Emscripten" this automatically adds
+`-s DISABLE_EXCEPTION_CATCHING=0` to both compiler and linker flags since
+early-exit from test cases (failure, expected failure, skipped test case...) is
+done via exceptions.
 
 @subsection corrade-cmake-add-resource Compile data resources into application binary
 
@@ -239,13 +329,20 @@ corrade_add_plugin(<plugin name>
                    <sources>...)
 @endcode
 
-The macro adds preprocessor directive `CORRADE_DYNAMIC_PLUGIN`. Additional
-libraries can be linked in via @cmake target_link_libraries(plugin_name ...) @ce.
-On DLL platforms, the plugin DLLs and metadata files are put into
-`<debug binary install dir>` /`<release binary install dir>` and the `*.lib`
-files into `<debug library install dir>` /`<release library install dir>`. On
-non-DLL platforms everything is put into
-`<debug library install dir>`/`<release library install dir>`.
+The macro adds a preprocessor directive `CORRADE_DYNAMIC_PLUGIN` when compiling
+`<sources>`. Additional libraries can be linked in via
+@cmake target_link_libraries(plugin_name ...) @ce. On DLL platforms, the plugin
+DLLs and metadata files are put into `<debug binary install dir>` /
+`<release binary install dir>` and the `*.lib` files into
+`<debug library install dir>` / `<release library install dir>`. On non-DLL
+platforms everything is put into `<debug library install dir>` /
+`<release library install dir>`.
+
+If the plugin interface disables plugin metadata files via
+@ref PluginManager::AbstractPlugin::pluginMetadataSuffix(), the `<metadata file>`
+can be set to @cpp "" @ce, in which case no metadata file is copied anywhere.
+Otherwise the metadata file is copied and renamed to `<plugin name>`, retaining
+its original extension.
 
 @code{.cmake}
 corrade_add_plugin(<plugin name>
@@ -255,7 +352,7 @@ corrade_add_plugin(<plugin name>
                    <sources>...)
 @endcode
 
-Unline the above version this puts everything into `<debug install dir>` on
+Unlike the above version this puts everything into `<debug install dir>` on
 both DLL and non-DLL platforms. If `<debug install dir>` is set to
 `CMAKE_CURRENT_BINARY_DIR` (e.g. for testing purposes), the files are copied
 directly, without the need to perform install step. Note that the files are
@@ -272,14 +369,21 @@ corrade_add_static_plugin(<plugin name>
                           <sources>...)
 @endcode
 
-The macro adds preprocessor directive `CORRADE_STATIC_PLUGIN`. Additional
-libraries can be linked in via @cmake target_link_libraries(plugin_name ...) @ce.
+The macro adds a preprocessor directive `CORRADE_STATIC_PLUGIN` when compiling
+`<sources>`. Additional libraries can be linked in via
+@cmake target_link_libraries(plugin_name ...) @ce.
 The `<binary install dir>` is ignored and included just for compatibility with
 the @ref corrade-cmake-add-plugin "corrade_add_plugin()" command, everything is
 installed into `<library install dir>`. Note that plugins built in debug
 configuration (e.g. with `CMAKE_BUILD_TYPE` set to `Debug`) have `-d` suffix to
 make it possible to have both debug and release plugins installed alongside
 each other.
+
+If the plugin interface disables plugin metadata files via
+@ref PluginManager::AbstractPlugin::pluginMetadataSuffix(), the `<metadata file>`
+can be set to @cpp "" @ce, in which case no metadata file is used. Otherwise
+the metadata file is bundled and renamed to `<plugin name>`, retaining its
+original extension.
 
 @code{.cmake}
 corrade_add_static_plugin(<plugin name>

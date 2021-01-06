@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -48,9 +48,9 @@ void SortedContainerTest::test() {
     std::vector<int> b{1, 4, 3, 2};
     std::vector<int> c{1, 4, 3, 3};
 
-    CORRADE_VERIFY((Comparator<Compare::SortedContainer<std::vector<int>>>()(a, b)));
-    CORRADE_VERIFY((Comparator<Compare::SortedContainer<std::vector<int>>>()(b, a)));
-    CORRADE_VERIFY((!Comparator<Compare::SortedContainer<std::vector<int>>>()(a, c)));
+    CORRADE_COMPARE((Comparator<Compare::SortedContainer<std::vector<int>>>()(a, b)), ComparisonStatusFlags{});
+    CORRADE_COMPARE((Comparator<Compare::SortedContainer<std::vector<int>>>()(b, a)), ComparisonStatusFlags{});
+    CORRADE_COMPARE((Comparator<Compare::SortedContainer<std::vector<int>>>()(a, c)), ComparisonStatusFlag::Failed);
 }
 
 }}}}}

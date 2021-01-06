@@ -2,7 +2,7 @@
 #   This file is part of Corrade.
 #
 #   Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-#               2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+#               2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a
 #   copy of this software and associated documentation files (the "Software"),
@@ -70,10 +70,8 @@ if(NOT BUILD_STATIC)
 elseif(BUILD_STATIC_PIC)
     set_target_properties(CorradePluginManager PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
+# Utility also does -ldl now
 target_link_libraries(CorradePluginManager CorradeUtility)
-if(CORRADE_TARGET_UNIX)
-    target_link_libraries(CorradePluginManager ${CMAKE_DL_LIBS})
-endif()
 
 install(TARGETS CorradePluginManager
         RUNTIME DESTINATION ${CORRADE_BINARY_INSTALL_DIR}
@@ -97,15 +95,6 @@ if(BUILD_TESTS)
     target_link_libraries(CorradePluginManagerTestLib CorradeUtility)
     if(CORRADE_TARGET_UNIX)
         target_link_libraries(CorradePluginManagerTestLib ${CMAKE_DL_LIBS})
-    endif()
-
-    # On Windows we need to install first and then run the tests to avoid "DLL
-    # not found" hell, thus we need to install this too
-    if(CORRADE_TARGET_WINDOWS AND NOT CMAKE_CROSSCOMPILING AND NOT BUILD_STATIC)
-        install(TARGETS CorradePluginManagerTestLib
-            RUNTIME DESTINATION ${CORRADE_BINARY_INSTALL_DIR}
-            LIBRARY DESTINATION ${CORRADE_LIBRARY_INSTALL_DIR}
-            ARCHIVE DESTINATION ${CORRADE_LIBRARY_INSTALL_DIR})
     endif()
 
     add_subdirectory(Test)

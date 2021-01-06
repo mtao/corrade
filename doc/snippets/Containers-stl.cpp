@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -23,8 +23,11 @@
     DEALINGS IN THE SOFTWARE.
 */
 
+#include <string>
+
 #include "Corrade/Containers/ArrayViewStl.h"
 #include "Corrade/Containers/PointerStl.h"
+#include "Corrade/Containers/StringStl.h"
 #include "Corrade/Containers/ReferenceStl.h"
 
 using namespace Corrade;
@@ -49,6 +52,24 @@ std::unique_ptr<int> c = Containers::pointer<int>(12);
 auto d = Containers::pointer(std::unique_ptr<int>{new int{5}});
         // d is Containers::Pointer<int>
 /* [Pointer] */
+}
+
+{
+/* [StringView] */
+using namespace Containers::Literals;
+
+std::string a = "Hello\0world!"_s;
+
+Containers::MutableStringView b = a;
+b[5] = ' ';
+/* [StringView] */
+}
+
+{
+/* [String] */
+std::string a = "Hello world!";
+Containers::String b = a.substr(5);
+/* [String] */
 }
 
 {

@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -29,6 +29,8 @@
 #include <set>
 #include <unordered_map>
 
+#include "Corrade/Containers/StringView.h"
+#include "Corrade/Containers/StringStl.h"
 #include "Corrade/Utility/Assert.h"
 #include "Corrade/Utility/DebugStl.h"
 #include "Corrade/Utility/Directory.h"
@@ -97,7 +99,7 @@ void Tweakable::scopeInternal(void(*lambda)(void(*)(), void*), void(*userCall)()
     }
 }
 
-std::pair<bool, void*> Tweakable::registerVariable(const char* const file, const int line, const std::size_t variable, TweakableState(*parser)(Containers::ArrayView<const char>, Containers::StaticArrayView<Implementation::TweakableStorageSize, char>)) {
+std::pair<bool, void*> Tweakable::registerVariable(const char* const file, const int line, const std::size_t variable, TweakableState(*parser)(Containers::StringView, Containers::StaticArrayView<Implementation::TweakableStorageSize, char>)) {
     CORRADE_INTERNAL_ASSERT(_data);
 
     /* Find the file in the map */
@@ -118,7 +120,10 @@ std::pair<bool, void*> Tweakable::registerVariable(const char* const file, const
         const std::string watchPath = Directory::join(_data->replace, stripped);
 
         Debug{} << "Utility::Tweakable: watching for changes in" << watchPath;
-        found = _data->files.emplace(file, File{watchPath, FileWatcher{watchPath}, {}}).first;
+        /* Ignore errors and do not signal changes if the file is empty in
+           order to make everything more robust -- editors are known to be
+           doing both */
+        found = _data->files.emplace(file, File{watchPath, FileWatcher{watchPath, FileWatcher::Flag::IgnoreChangeIfEmpty|FileWatcher::Flag::IgnoreErrors}, {}}).first;
     }
 
     /* Extend the variable list to contain this one as well */
@@ -152,6 +157,8 @@ namespace {
 }
 
 std::string findTweakableAlias(const std::string& data) {
+    using namespace Containers::Literals;
+
     std::string name = "CORRADE_TWEAKABLE";
     std::size_t pos = 0;
     while((pos = data.find("#define", pos)) != std::string::npos) {
@@ -183,7 +190,9 @@ std::string findTweakableAlias(const std::string& data) {
         eatWhitespace(data, pos);
 
         /* If the rest doesn't read CORRADE_TWEAKABLE, nope */
-        if(!String::viewBeginsWith({data.data() + pos, data.size() - pos}, "CORRADE_TWEAKABLE"))
+        /** @todo convert all this to operate on StringViews when we have
+            find() as well */
+        if(!Containers::StringView{data}.suffix(pos).hasPrefix("CORRADE_TWEAKABLE"_s))
             continue;
 
         /* Get rid of whitespace at the end of the line */
@@ -567,7 +576,7 @@ TweakableState parseTweakables(const std::string& name, const std::string& filen
             ++variable;
 
         /* Shouldn't get here */
-        } else CORRADE_ASSERT_UNREACHABLE(); /* LCOV_EXCL_LINE */
+        } else CORRADE_INTERNAL_ASSERT_UNREACHABLE(); /* LCOV_EXCL_LINE */
     }
 
     /* Being inside a line comment is okay, being inside a block comment is not */

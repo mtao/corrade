@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -23,9 +23,12 @@
     DEALINGS IN THE SOFTWARE.
 */
 
+#include "Corrade/Containers/String.h"
+#include "Corrade/Containers/StringView.h"
 #include "Corrade/TestSuite/Tester.h"
 #include "Corrade/Utility/Configuration.h"
 #include "Corrade/Utility/DebugStl.h"
+#include "Corrade/Utility/FormatStl.h"
 
 namespace Corrade { namespace Utility {
 
@@ -49,37 +52,68 @@ template<> struct ConfigurationValue<NoDefaultConstructor> {
     }
 };
 
+namespace {
+
+enum class UsingContainersString: int { Value = 3 };
+
+}
+
+template<> struct ConfigurationValue<UsingContainersString> {
+    ConfigurationValue() = delete;
+
+    static Containers::String toString(UsingContainersString value, ConfigurationValueFlags) {
+        return value == UsingContainersString::Value ? "three" : "";
+    }
+    static UsingContainersString fromString(const Containers::StringView& stringValue, ConfigurationValueFlags) {
+        return stringValue == "three" ? UsingContainersString::Value : UsingContainersString{};
+    }
+};
+
 namespace Test { namespace {
 
 struct ConfigurationValueTest: TestSuite::Tester {
     explicit ConfigurationValueTest();
 
+    void stlString();
+    void stringView();
     void string();
     void unsignedInteger();
     void signedInteger();
     void integerFlags();
+
     void floatingPoint();
     void floatingPointScientific();
+    template<class T> void floatingPointPrecision();
+
     void unicodeCharLiteral();
     void boolean();
 
     void custom();
+    void customUsingContainersString();
 };
 
 ConfigurationValueTest::ConfigurationValueTest() {
-    addTests({&ConfigurationValueTest::string,
+    addTests({&ConfigurationValueTest::stlString,
+              &ConfigurationValueTest::stringView,
+              &ConfigurationValueTest::string,
               &ConfigurationValueTest::unsignedInteger,
               &ConfigurationValueTest::signedInteger,
               &ConfigurationValueTest::integerFlags,
+
               &ConfigurationValueTest::floatingPoint,
               &ConfigurationValueTest::floatingPointScientific,
+              &ConfigurationValueTest::floatingPointPrecision<float>,
+              &ConfigurationValueTest::floatingPointPrecision<double>,
+              &ConfigurationValueTest::floatingPointPrecision<long double>,
+
               &ConfigurationValueTest::unicodeCharLiteral,
               &ConfigurationValueTest::boolean,
 
-              &ConfigurationValueTest::custom});
+              &ConfigurationValueTest::custom,
+              &ConfigurationValueTest::customUsingContainersString});
 }
 
-void ConfigurationValueTest::string() {
+void ConfigurationValueTest::stlString() {
     Configuration c;
 
     /* It should not change any whitespace */
@@ -94,6 +128,39 @@ void ConfigurationValueTest::string() {
     /* Empty value is default-constructed */
     c.setValue("empty", "");
     CORRADE_COMPARE(c.value("empty"), "");
+}
+
+void ConfigurationValueTest::stringView() {
+    using namespace Containers::Literals;
+
+    Configuration c;
+
+    /* It should behave the same as a STL string */
+    Containers::StringView spaces = " value\t "_s;
+    c.setValue("spaces", spaces);
+    CORRADE_COMPARE(c.value<Containers::StringView>("spaces"), spaces);
+
+    /* Empty value is default-constructed */
+    c.setValue("empty", Containers::StringView{});
+    CORRADE_COMPARE(c.value<Containers::StringView>("empty"), ""_s);
+
+    /* Non-existent value is an empty view */
+    CORRADE_COMPARE(c.value<Containers::StringView>("nonexistent"), ""_s);
+}
+
+void ConfigurationValueTest::string() {
+    using namespace Containers::Literals;
+
+    Configuration c;
+
+    /* It should behave the same as a STL string */
+    Containers::String spaces = " value\t "_s;
+    c.setValue("spaces", spaces);
+    CORRADE_COMPARE(c.value<Containers::String>("spaces"), spaces);
+
+    /* Empty value is default-constructed */
+    c.setValue("empty", Containers::String{});
+    CORRADE_COMPARE(c.value<Containers::String>("empty"), ""_s);
 }
 
 void ConfigurationValueTest::unsignedInteger() {
@@ -181,7 +248,6 @@ void ConfigurationValueTest::floatingPoint() {
         CORRADE_COMPARE(c.value<double>("double"), a);
     }
 
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     {
         long double a = 0.125l;
         std::string value{"0.125"};
@@ -190,7 +256,6 @@ void ConfigurationValueTest::floatingPoint() {
         CORRADE_COMPARE(c.value("ld"), value);
         CORRADE_COMPARE(c.value<long double>("ld"), a);
     }
-    #endif
 
     /* Empty value is default-constructed */
     c.setValue("empty", "");
@@ -201,7 +266,7 @@ void ConfigurationValueTest::floatingPointScientific() {
     Configuration c;
 
     {
-        double a = 2.1e7;
+        float a = 2.1e7;
         std::string value{
             #ifndef __MINGW32__
             "2.1e+07"
@@ -211,14 +276,14 @@ void ConfigurationValueTest::floatingPointScientific() {
         };
 
         c.setValue("exp", "2.1e7");
-        CORRADE_COMPARE(c.value<double>("exp"), a);
+        CORRADE_COMPARE(c.value<float>("exp"), a);
 
         c.setValue("exp", a);
         CORRADE_COMPARE(c.value("exp"), value);
-        CORRADE_COMPARE(c.value<double>("exp"), a);
-        CORRADE_COMPARE(c.value<double>("exp", ConfigurationValueFlag::Scientific), a);
+        CORRADE_COMPARE(c.value<float>("exp"), a);
+        CORRADE_COMPARE(c.value<float>("exp", ConfigurationValueFlag::Scientific), a);
     } {
-        double a = 2.1e+7;
+        float a = 2.1e+7;
         std::string value{
             #ifndef __MINGW32__
             "2.1e+07"
@@ -235,17 +300,17 @@ void ConfigurationValueTest::floatingPointScientific() {
         };
 
         c.setValue("expPos", "2.1e7");
-        CORRADE_COMPARE(c.value<double>("expPos"), a);
+        CORRADE_COMPARE(c.value<float>("expPos"), a);
 
         c.setValue("expPos", value);
         CORRADE_COMPARE(c.value("expPos"), value);
-        CORRADE_COMPARE(c.value<double>("expPos"), a);
+        CORRADE_COMPARE(c.value<float>("expPos"), a);
 
         c.setValue("expPos", a, ConfigurationValueFlag::Scientific);
         CORRADE_COMPARE(c.value("expPos"), valueSci);
-        CORRADE_COMPARE(c.value<double>("expPos"), a);
+        CORRADE_COMPARE(c.value<float>("expPos"), a);
     } {
-        double a = -2.1e7;
+        float a = -2.1e7;
         std::string value{
             #ifndef __MINGW32__
             "-2.1e+07"
@@ -255,13 +320,13 @@ void ConfigurationValueTest::floatingPointScientific() {
         };
 
         c.setValue("expNeg", "-2.1e7");
-        CORRADE_COMPARE(c.value<double>("expNeg"), a);
+        CORRADE_COMPARE(c.value<float>("expNeg"), a);
 
         c.setValue("expNeg", a);
         CORRADE_COMPARE(c.value("expNeg"), value);
-        CORRADE_COMPARE(c.value<double>("expNeg"), a);
+        CORRADE_COMPARE(c.value<float>("expNeg"), a);
     } {
-        double a = 2.1e-7;
+        float a = 2.1e-7;
         std::string value{
             #ifndef __MINGW32__
             "2.1e-07"
@@ -271,13 +336,13 @@ void ConfigurationValueTest::floatingPointScientific() {
         };
 
         c.setValue("expNeg2", "2.1e-7");
-        CORRADE_COMPARE(c.value<double>("expNeg2"), a);
+        CORRADE_COMPARE(c.value<float>("expNeg2"), a);
 
         c.setValue("expNeg2", a);
         CORRADE_COMPARE(c.value("expNeg2"), value);
-        CORRADE_COMPARE(c.value<double>("expNeg2"), a);
+        CORRADE_COMPARE(c.value<float>("expNeg2"), a);
     } {
-        double a = 2.1E7;
+        float a = 2.1E7;
         std::string value{
             #ifndef __MINGW32__
             "2.1E+07"
@@ -294,15 +359,57 @@ void ConfigurationValueTest::floatingPointScientific() {
         };
 
         c.setValue("expBig", "2.1E7");
-        CORRADE_COMPARE(c.value<double>("expBig"), a);
+        CORRADE_COMPARE(c.value<float>("expBig"), a);
 
         c.setValue("expBig", a, ConfigurationValueFlag::Uppercase);
         CORRADE_COMPARE(c.value("expBig"), value);
-        CORRADE_COMPARE(c.value<double>("expBig"), a);
+        CORRADE_COMPARE(c.value<float>("expBig"), a);
 
         c.setValue("expBig", a, ConfigurationValueFlag::Scientific|ConfigurationValueFlag::Uppercase);
         CORRADE_COMPARE(c.value("expBig"), valueSci);
-        CORRADE_COMPARE(c.value<double>("expBig"), a);
+        CORRADE_COMPARE(c.value<float>("expBig"), a);
+    }
+}
+
+template<class> struct FloatingPrecisionData;
+template<> struct FloatingPrecisionData<float> {
+    static const char* name() { return "float"; }
+};
+template<> struct FloatingPrecisionData<double> {
+    static const char* name() { return "double"; }
+};
+template<> struct FloatingPrecisionData<long double> {
+    static const char* name() { return "long double"; }
+};
+
+template<class T> void ConfigurationValueTest::floatingPointPrecision() {
+    setTestCaseTemplateName(FloatingPrecisionData<T>::name());
+
+    /* Using format() as the ground truth source for consistency (for it
+       there's the same test, but with actual data) */
+    Configuration c;
+    {
+        T a = T(3.1415926535897932384626l);
+        c.setValue("a", a);
+        CORRADE_COMPARE(c.value("a"), formatString("{}", a));
+        CORRADE_COMPARE(c.value<T>("a"), a);
+    } {
+        T a = T(-12345.67890123456789l);
+        c.setValue("a", a);
+        CORRADE_COMPARE(c.value("a"), formatString("{}", a));
+        CORRADE_COMPARE(c.value<T>("a"), a);
+    } {
+        T a = T(1.234567890123456789e-12l);
+        c.setValue("a", a);
+        CORRADE_COMPARE(c.value("a"), formatString("{}", a));
+        CORRADE_COMPARE(c.value<T>("a"), a);
+    } {
+        /* Sanity check to ensure there's no major issue in both format() and
+          here */
+        float a = 3.141592653589793f;
+        c.setValue("a", a);
+        CORRADE_COMPARE(c.value("a"), "3.14159");
+        CORRADE_COMPARE(c.value<float>("a"), a);
     }
 }
 
@@ -363,6 +470,18 @@ void ConfigurationValueTest::custom() {
     CORRADE_COMPARE(values[1].a, 5);
     CORRADE_COMPARE(values[2].a, 0);
     CORRADE_COMPARE(values[3].a, 7);
+}
+
+void ConfigurationValueTest::customUsingContainersString() {
+    Configuration c;
+
+    c.setValue("custom", UsingContainersString::Value);
+    CORRADE_COMPARE(c.value("custom"), "three");
+    CORRADE_COMPARE(int(c.value<UsingContainersString>("custom")), int(UsingContainersString::Value));
+
+    c.setValue("empty", UsingContainersString{});
+    CORRADE_COMPARE(c.value("empty"), "");
+    CORRADE_COMPARE(int(c.value<UsingContainersString>("empty")), int(UsingContainersString{}));
 }
 
 }}}}

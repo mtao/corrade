@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -25,6 +25,9 @@
 
 #include <sstream>
 
+#include "Corrade/Containers/Array.h"
+#include "Corrade/Containers/StaticArray.h"
+#include "Corrade/Containers/StringView.h"
 #include "Corrade/TestSuite/Tester.h"
 #include "Corrade/TestSuite/Compare/Container.h"
 #include "Corrade/Utility/DebugStl.h"
@@ -40,16 +43,21 @@ struct StringTest: TestSuite::Tester {
     void trimInPlace();
     void split();
     void splitMultipleCharacters();
+    void partition();
     void join();
     void lowercase();
     void uppercase();
 
     void beginsWith();
     void beginsWithEmpty();
+    #ifdef CORRADE_BUILD_DEPRECATED
     void viewBeginsWith();
+    #endif
     void endsWith();
     void endsWithEmpty();
+    #ifdef CORRADE_BUILD_DEPRECATED
     void viewEndsWith();
+    #endif
 
     void stripPrefix();
     void stripPrefixInvalid();
@@ -73,16 +81,21 @@ StringTest::StringTest() {
               &StringTest::trimInPlace,
               &StringTest::split,
               &StringTest::splitMultipleCharacters,
+              &StringTest::partition,
               &StringTest::join,
               &StringTest::lowercase,
               &StringTest::uppercase,
 
               &StringTest::beginsWith,
               &StringTest::beginsWithEmpty,
+              #ifdef CORRADE_BUILD_DEPRECATED
               &StringTest::viewBeginsWith,
+              #endif
               &StringTest::endsWith,
               &StringTest::endsWithEmpty,
+              #ifdef CORRADE_BUILD_DEPRECATED
               &StringTest::viewEndsWith,
+              #endif
 
               &StringTest::stripPrefix,
               &StringTest::stripPrefixInvalid,
@@ -213,67 +226,115 @@ void StringTest::trimInPlace() {
 }
 
 void StringTest::split() {
+    /* These delegate into the StringView implementation and the tests are
+       kept just for archival purposes, until the whole thing is deprecated.
+       The explicit cast to avoid an ambiguous overload is kinda nasty, but
+       since this is eventually getting deprecated, I don't care anymore. */
+
     /* Empty */
-    CORRADE_COMPARE_AS(String::split({}, '/'),
+    CORRADE_COMPARE_AS(String::split(std::string{}, '/'),
         std::vector<std::string>{}, TestSuite::Compare::Container);
-    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts({}, '/'),
+    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts(std::string{}, '/'),
         std::vector<std::string>{}, TestSuite::Compare::Container);
 
     /* Only delimiter */
-    CORRADE_COMPARE_AS(String::split("/", '/'),
+    CORRADE_COMPARE_AS(String::split(std::string{"/"}, '/'),
         (std::vector<std::string>{"", ""}), TestSuite::Compare::Container);
-    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts("/", '/'),
+    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts(std::string{"/"}, '/'),
         std::vector<std::string>{}, TestSuite::Compare::Container);
 
     /* No delimiters */
-    CORRADE_COMPARE_AS(String::split("abcdef", '/'),
+    CORRADE_COMPARE_AS(String::split(std::string{"abcdef"}, '/'),
         std::vector<std::string>{"abcdef"}, TestSuite::Compare::Container);
-    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts("abcdef", '/'),
+    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts(std::string{"abcdef"}, '/'),
         std::vector<std::string>{"abcdef"}, TestSuite::Compare::Container);
 
     /* Common case */
-    CORRADE_COMPARE_AS(String::split("ab/c/def", '/'),
+    CORRADE_COMPARE_AS(String::split(std::string{"ab/c/def"}, '/'),
         (std::vector<std::string>{"ab", "c", "def"}), TestSuite::Compare::Container);
-    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts("ab/c/def", '/'),
+    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts(std::string{"ab/c/def"}, '/'),
         (std::vector<std::string>{"ab", "c", "def"}), TestSuite::Compare::Container);
 
     /* Empty parts */
-    CORRADE_COMPARE_AS(String::split("ab//c/def//", '/'),
+    CORRADE_COMPARE_AS(String::split(std::string{"ab//c/def//"}, '/'),
         (std::vector<std::string>{"ab", "", "c", "def", "", ""}), TestSuite::Compare::Container);
-    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts("ab//c/def//", '/'),
+    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts(std::string{"ab//c/def//"}, '/'),
         (std::vector<std::string>{"ab", "c", "def"}), TestSuite::Compare::Container);
 }
 
 void StringTest::splitMultipleCharacters() {
+    /* These delegate into the StringView implementation and the tests are
+       kept just for archival purposes, until the whole thing is deprecated.
+       The explicit cast to avoid an ambiguous overload is kinda nasty, but
+       since this is eventually getting deprecated, I don't care anymore. */
+
     const char delimiters[] = ".:;";
 
     /* Empty */
-    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts({}, delimiters),
+    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts(std::string{}, delimiters),
         std::vector<std::string>{}, TestSuite::Compare::Container);
 
     /* Only delimiters */
-    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts(".::;", delimiters),
+    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts(std::string{".::;"}, delimiters),
         std::vector<std::string>{}, TestSuite::Compare::Container);
 
     /* No delimiters */
-    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts("abcdef", delimiters),
+    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts(std::string{"abcdef"}, delimiters),
         std::vector<std::string>{"abcdef"}, TestSuite::Compare::Container);
 
     /* Common case */
-    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts("ab:c;def", delimiters),
+    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts(std::string{"ab:c;def"}, delimiters),
         (std::vector<std::string>{"ab", "c", "def"}), TestSuite::Compare::Container);
 
     /* Empty parts */
-    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts("ab:c;;def.", delimiters),
-        (std::vector<std::string>{"ab", "c", "def"}), TestSuite::Compare::Container);
-
-    /* Delimiters as a string */
-    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts("ab:c;;def.", std::string{delimiters}),
+    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts(std::string{"ab:c;;def."}, delimiters),
         (std::vector<std::string>{"ab", "c", "def"}), TestSuite::Compare::Container);
 
     /* Whitespace */
-    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts("ab c  \t \ndef\r"),
+    CORRADE_COMPARE_AS(String::splitWithoutEmptyParts(std::string{"ab c  \t \ndef\r"}),
         (std::vector<std::string>{"ab", "c", "def"}), TestSuite::Compare::Container);
+}
+
+void StringTest::partition() {
+    /* Happy case */
+    CORRADE_COMPARE_AS(String::partition("ab=c", '='),
+        (Containers::StaticArray<3, std::string>{"ab", "=", "c"}),
+        TestSuite::Compare::Container);
+    CORRADE_COMPARE_AS(String::rpartition("ab=c", '='),
+        (Containers::StaticArray<3, std::string>{"ab", "=", "c"}),
+        TestSuite::Compare::Container);
+
+    /* Two occurences */
+    CORRADE_COMPARE_AS(String::partition("ab=c=d", '='),
+        (Containers::StaticArray<3, std::string>{"ab", "=", "c=d"}),
+        TestSuite::Compare::Container);
+    CORRADE_COMPARE_AS(String::rpartition("ab=c=d", '='),
+        (Containers::StaticArray<3, std::string>{"ab=c", "=", "d"}),
+        TestSuite::Compare::Container);
+
+    /* Not found */
+    CORRADE_COMPARE_AS(String::partition("abc", '='),
+        (Containers::StaticArray<3, std::string>{"abc", "", ""}),
+        TestSuite::Compare::Container);
+    CORRADE_COMPARE_AS(String::rpartition("abc", '='),
+        (Containers::StaticArray<3, std::string>{"", "", "abc"}),
+        TestSuite::Compare::Container);
+
+    /* Empty input */
+    CORRADE_COMPARE_AS(String::partition("", '='),
+        (Containers::StaticArray<3, std::string>{"", "", ""}),
+        TestSuite::Compare::Container);
+    CORRADE_COMPARE_AS(String::rpartition("", '='),
+        (Containers::StaticArray<3, std::string>{"", "", ""}),
+        TestSuite::Compare::Container);
+
+    /* More characters */
+    CORRADE_COMPARE_AS(String::partition("ab, c, d", ", "),
+        (Containers::StaticArray<3, std::string>{"ab", ", ", "c, d"}),
+        TestSuite::Compare::Container);
+    CORRADE_COMPARE_AS(String::rpartition("ab, c, d", ", "),
+        (Containers::StaticArray<3, std::string>{"ab, c", ", ", "d"}),
+        TestSuite::Compare::Container);
 }
 
 void StringTest::join() {
@@ -297,11 +358,19 @@ void StringTest::join() {
     CORRADE_COMPARE(String::joinWithoutEmptyParts({"abcdef"}, '/'),
         "abcdef");
 
-    /* Common case */
+    /* Common case, also multi-character and std::string joiner */
     CORRADE_COMPARE(String::join({"ab", "c", "def"}, '/'),
         "ab/c/def");
+    CORRADE_COMPARE(String::join({"ab", "c", "def"}, ", "),
+        "ab, c, def");
+    CORRADE_COMPARE(String::join({"ab", "c", "def"}, std::string{", "}),
+        "ab, c, def");
     CORRADE_COMPARE(String::joinWithoutEmptyParts({"ab", "c", "def"}, '/'),
         "ab/c/def");
+    CORRADE_COMPARE(String::joinWithoutEmptyParts({"ab", "c", "def"}, ", "),
+        "ab, c, def");
+    CORRADE_COMPARE(String::joinWithoutEmptyParts({"ab", "c", "def"}, std::string{", "}),
+        "ab, c, def");
 
     /* Empty parts */
     CORRADE_COMPARE(String::join({"ab", "", "c", "def", "", ""}, '/'),
@@ -341,6 +410,9 @@ void StringTest::uppercase() {
 }
 
 void StringTest::beginsWith() {
+    /* These delegate into the StringView implementation and the tests are
+       kept just for archival purposes, until the whole thing is deprecated. */
+
     CORRADE_VERIFY(String::beginsWith("overcomplicated", "over"));
     CORRADE_VERIFY(String::beginsWith("overcomplicated", std::string{"over"}));
 
@@ -353,21 +425,34 @@ void StringTest::beginsWith() {
 }
 
 void StringTest::beginsWithEmpty() {
+    /* These delegate into the StringView implementation and the tests are
+       kept just for archival purposes, until the whole thing is deprecated. */
+
     CORRADE_VERIFY(!String::beginsWith("", "overcomplicated"));
     CORRADE_VERIFY(String::beginsWith("overcomplicated", ""));
     CORRADE_VERIFY(String::beginsWith("", ""));
 }
 
+#ifdef CORRADE_BUILD_DEPRECATED
 void StringTest::viewBeginsWith() {
+    /* These delegate into the StringView implementation and the tests are
+       kept just for archival purposes, until the whole thing is deprecated. */
+
+    CORRADE_IGNORE_DEPRECATED_PUSH
     CORRADE_VERIFY(String::viewBeginsWith("overcomplicated", "over"));
     CORRADE_VERIFY(!String::viewBeginsWith("overcomplicated", "oven"));
 
     CORRADE_VERIFY(String::viewBeginsWith("hello", 'h'));
     CORRADE_VERIFY(!String::viewBeginsWith("hello", 'o'));
     CORRADE_VERIFY(!String::viewBeginsWith("", 'h'));
+    CORRADE_IGNORE_DEPRECATED_POP
 }
+#endif
 
 void StringTest::endsWith() {
+    /* These delegate into the StringView implementation and the tests are
+       kept just for archival purposes, until the whole thing is deprecated. */
+
     CORRADE_VERIFY(String::endsWith("overcomplicated", "complicated"));
     CORRADE_VERIFY(String::endsWith("overcomplicated", std::string{"complicated"}));
 
@@ -382,12 +467,20 @@ void StringTest::endsWith() {
 }
 
 void StringTest::endsWithEmpty() {
-    CORRADE_VERIFY(!String::beginsWith("", "overcomplicated"));
-    CORRADE_VERIFY(String::beginsWith("overcomplicated", ""));
-    CORRADE_VERIFY(String::beginsWith("", ""));
+    /* These delegate into the StringView implementation and the tests are
+       kept just for archival purposes, until the whole thing is deprecated. */
+
+    CORRADE_VERIFY(!String::endsWith("", "overcomplicated"));
+    CORRADE_VERIFY(String::endsWith("overcomplicated", ""));
+    CORRADE_VERIFY(String::endsWith("", ""));
 }
 
+#ifdef CORRADE_BUILD_DEPRECATED
 void StringTest::viewEndsWith() {
+    /* These delegate into the StringView implementation and the tests are
+       kept just for archival purposes, until the whole thing is deprecated. */
+
+    CORRADE_IGNORE_DEPRECATED_PUSH
     CORRADE_VERIFY(String::viewEndsWith({"overcomplicated", 15}, "complicated"));
     CORRADE_VERIFY(!String::viewEndsWith("overcomplicated", "complicated"));
 
@@ -398,7 +491,9 @@ void StringTest::viewEndsWith() {
     CORRADE_VERIFY(String::viewEndsWith({"hello", 5}, 'o'));
     CORRADE_VERIFY(!String::viewEndsWith("hello", 'o'));
     CORRADE_VERIFY(!String::viewEndsWith("", 'h'));
+    CORRADE_IGNORE_DEPRECATED_POP
 }
+#endif
 
 void StringTest::stripPrefix() {
     CORRADE_COMPARE(String::stripPrefix("overcomplicated", "over"), "complicated");
@@ -408,6 +503,10 @@ void StringTest::stripPrefix() {
 }
 
 void StringTest::stripPrefixInvalid() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectOutput{&out};
     String::stripPrefix("overcomplicated", "complicated");
@@ -422,6 +521,10 @@ void StringTest::stripSuffix() {
 }
 
 void StringTest::stripSuffixInvalid() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectOutput{&out};
     String::stripSuffix("overcomplicated", "over");
@@ -487,6 +590,10 @@ void StringTest::replaceAllNotFound() {
 }
 
 void StringTest::replaceAllEmptySearch() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectOutput{&out};
     String::replaceAll("this completely messed up", "", "got ");

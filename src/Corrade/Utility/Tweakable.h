@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -33,6 +33,7 @@
 
 #if defined(DOXYGEN_GENERATING_OUTPUT) || defined(CORRADE_TARGET_UNIX) || (defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT)) || defined(CORRADE_TARGET_EMSCRIPTEN)
 #include "Corrade/Containers/ArrayView.h"
+#include "Corrade/Containers/StringView.h"
 #include "Corrade/Containers/Optional.h"
 #include "Corrade/Containers/Pointer.h"
 #include "Corrade/Utility/TweakableParser.h"
@@ -63,7 +64,7 @@ directly. Here we'll use a single underscore:
 
 After that, enable it using @ref enable() (it's disabled by default). From that
 point onwards, all literals wrapped with this macro invocation will get
-recognized by it. To reflect source changes in the app, eriodically call
+recognized by it. To reflect source changes in the app, periodically call
 @ref update(), for best responsiveness ideally in each event loop iteration.
 
 @snippet Utility.cpp Tweakable-wrap-update
@@ -83,7 +84,7 @@ Not all code is running in every iteration of an event loop --- and it's not
 desirable to put it there just to be able to use tweakable constants. To fix
 that, there's the @ref scope() function. It takes a single-parameter function
 (or a lambda) and runs the contents as if the code was placed directly in the
-containing block. But fur every tweakable constant inside, it remembers its
+containing block. But for every tweakable constant inside, it remembers its
 surrounding scope lambda. Then, during @ref update(), whenever one of these
 constants is changed, the corresponding scope lambda gets called again (with
 the same parameter). So for example this way you can execute part of a
@@ -342,7 +343,7 @@ class CORRADE_UTILITY_EXPORT Tweakable {
     private:
         struct Data;
 
-        std::pair<bool, void*> registerVariable(const char* file, int line, std::size_t variable, TweakableState(*parser)(Containers::ArrayView<const char>, Containers::StaticArrayView<Implementation::TweakableStorageSize, char>));
+        std::pair<bool, void*> registerVariable(const char* file, int line, std::size_t variable, TweakableState(*parser)(Containers::StringView, Containers::StaticArrayView<Implementation::TweakableStorageSize, char>));
 
         void scopeInternal(void(*lambda)(void(*)(), void*), void(*userCall)(), void* userData);
 
@@ -396,7 +397,7 @@ namespace Implementation {
             "tweakable type is not trivially destructible, use the advanced parser signature instead");
         #endif
 
-        static TweakableState parse(Containers::ArrayView<const char> value, Containers::StaticArrayView<TweakableStorageSize, char> storage) {
+        static TweakableState parse(Containers::StringView value, Containers::StaticArrayView<TweakableStorageSize, char> storage) {
             std::pair<TweakableState, T> parsed = TweakableParser<T>::parse(value);
             if(parsed.first != TweakableState::Success)
                 return parsed.first;

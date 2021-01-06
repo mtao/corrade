@@ -12,17 +12,22 @@ cmake .. ^
     -DBUILD_TESTS=ON ^
     -G Ninja || exit /b
 cmake --build . || exit /b
-cmake --build . --target install || exit /b
 
 rem Test
 cd %APPVEYOR_BUILD_FOLDER%/build || exit /b
 set CORRADE_TEST_COLOR=ON
 ctest -V || exit /b
 
-rem Examples
+rem Test install, after running the tests as for them it shouldn't be needed
+cmake --build . --target install || exit /b
+
+rem Examples. The --coverage flag needs to be specified as well otherwise
+rem linking to CorradeMain will result in undefined reference to __gcov_init
+rem and such.
 cd %APPVEYOR_BUILD_FOLDER% || exit /b
 mkdir build-examples && cd build-examples || exit /b
 cmake ../src/examples ^
+    -DCMAKE_CXX_FLAGS="--coverage" ^
     -DCMAKE_BUILD_TYPE=Debug ^
     -DCMAKE_PREFIX_PATH=%APPVEYOR_BUILD_FOLDER%/deps ^
     -G Ninja || exit /b

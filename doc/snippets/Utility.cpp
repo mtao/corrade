@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -33,13 +33,16 @@
 #include "Corrade/Utility/Arguments.h"
 #include "Corrade/Utility/Assert.h"
 #include "Corrade/Utility/Configuration.h"
+#include "Corrade/Utility/DebugStl.h"
 #include "Corrade/Utility/Directory.h"
+#include "Corrade/Utility/Endianness.h"
 #if defined(CORRADE_TARGET_UNIX) || (defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT)) || defined(CORRADE_TARGET_EMSCRIPTEN)
 #include "Corrade/Utility/FileWatcher.h"
 #endif
 #include "Corrade/Utility/Format.h"
 #include "Corrade/Utility/FormatStl.h"
 #include "Corrade/Utility/Macros.h"
+#include "Corrade/Utility/Sha1.h"
 
 /* [Tweakable-disable-header] */
 #define CORRADE_TWEAKABLE
@@ -68,7 +71,7 @@ template<> struct ConfigurationValue<Foo> {
 
         Foo foo;
         (i >> a) && (foo.a = ConfigurationValue<int>::fromString(a, flags));
-        (i >> b) && (foo.b = ConfigurationValue<int>::fromString(a, flags));
+        (i >> b) && (foo.b = ConfigurationValue<int>::fromString(b, flags));
         return foo;
     }
 };
@@ -107,14 +110,18 @@ CORRADE_ASSERT(pos < size(), "Array::operator[](): accessing element"
 /* [CORRADE_INTERNAL_ASSERT] */
 CORRADE_INTERNAL_ASSERT(pos < size());
 /* [CORRADE_INTERNAL_ASSERT] */
+#ifdef CORRADE_NO_ASSERT
+static_cast<void>(pos);
+#endif
 return {};
 }
 
 bool initialize(char = 0);
+void consume(Containers::Array<char>&&);
 void foo(char userParam) {
 /* [CORRADE_ASSERT-output] */
 CORRADE_ASSERT(initialize(userParam),
-    "Initialization failed: wrong parameter" << userParam, );
+    "Initialization failed: wrong parameter" << userParam, ); // wrong!
 /* [CORRADE_ASSERT-output] */
 
 /* [CORRADE_ASSERT_OUTPUT] */
@@ -123,26 +130,91 @@ CORRADE_ASSERT_OUTPUT(initialize(userParam),
 /* [CORRADE_ASSERT_OUTPUT] */
 
 /* [CORRADE_INTERNAL_ASSERT-output] */
-CORRADE_INTERNAL_ASSERT(initialize());
+CORRADE_INTERNAL_ASSERT(initialize()); // wrong!
 /* [CORRADE_INTERNAL_ASSERT-output] */
 
 /* [CORRADE_INTERNAL_ASSERT_OUTPUT] */
 CORRADE_INTERNAL_ASSERT_OUTPUT(initialize());
 /* [CORRADE_INTERNAL_ASSERT_OUTPUT] */
+
+{
+/* [CORRADE_INTERNAL_ASSERT_EXPRESSION-without] */
+Containers::Array<char> data;
+CORRADE_INTERNAL_ASSERT_OUTPUT(data = Utility::Directory::read("file.dat"));
+consume(std::move(data));
+/* [CORRADE_INTERNAL_ASSERT_EXPRESSION-without] */
 }
 
-enum class Flag { A, B };
-bool foo(Flag flag) {
-bool foo{}, bar{};
-/* [CORRADE_ASSERT_UNREACHABLE] */
-switch(flag) {
-    case Flag::A: return foo;
-    case Flag::B: return bar;
+{
+/* [CORRADE_INTERNAL_ASSERT_EXPRESSION] */
+consume(CORRADE_INTERNAL_ASSERT_EXPRESSION(Utility::Directory::read("file.dat")));
+/* [CORRADE_INTERNAL_ASSERT_EXPRESSION] */
 }
 
-CORRADE_ASSERT_UNREACHABLE();
-/* [CORRADE_ASSERT_UNREACHABLE] */
+{
+int *src{}, *dst{}, *end{};
+/* [CORRADE_ASSUME] */
+CORRADE_ASSUME(src != dst);
+for(; src != end; ++src, ++dst) *dst += *src;
+/* [CORRADE_ASSUME] */
 }
+}
+
+#ifdef CORRADE_TARGET_GCC
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wreturn-type"
+#endif
+enum class Status { Great, NotGreat };
+/* [CORRADE_ASSERT-unreachable] */
+std::string statusString(Status status) {
+    switch(status) {
+        case Status::Great: return "great";
+        case Status::NotGreat: return "not great";
+    }
+    CORRADE_ASSERT(false, "status is neither great nor non-great", {}); // wrong!
+}
+/* [CORRADE_ASSERT-unreachable] */
+
+enum class Type { UnsignedInt, UnsignedShort, UnsignedByte };
+/* [CORRADE_INTERNAL_ASSERT-unreachable] */
+std::size_t elementCount(std::size_t size, Type type) {
+    switch(type) {
+        case Type::UnsignedInt: return size/4;
+        case Type::UnsignedShort: return size/2;
+        case Type::UnsignedByte: return size/1;
+    }
+
+    CORRADE_INTERNAL_ASSERT(false); // wrong!
+}
+/* [CORRADE_INTERNAL_ASSERT-unreachable] */
+#ifdef CORRADE_TARGET_GCC
+#pragma GCC diagnostic push
+#endif
+};
+
+struct Vec2 {
+enum class Status { Great, NotGreat };
+/* [CORRADE_ASSERT_UNREACHABLE] */
+std::string statusString(Status status) {
+    switch(status) {
+        case Status::Great: return "great";
+        case Status::NotGreat: return "not great";
+    }
+    CORRADE_ASSERT_UNREACHABLE("status is neither great nor non-great", {});
+}
+/* [CORRADE_ASSERT_UNREACHABLE] */
+
+enum class Type { UnsignedInt, UnsignedShort, UnsignedByte };
+/* [CORRADE_INTERNAL_ASSERT_UNREACHABLE] */
+std::size_t elementCount(std::size_t size, Type type) {
+    switch(type) {
+        case Type::UnsignedInt: return size/4;
+        case Type::UnsignedShort: return size/2;
+        case Type::UnsignedByte: return size/1;
+    }
+    CORRADE_INTERNAL_ASSERT_UNREACHABLE();
+}
+/* [CORRADE_INTERNAL_ASSERT_UNREACHABLE] */
 };
 
 /* [CORRADE_CONSTEXPR_ASSERT] */
@@ -229,6 +301,49 @@ bool handleUnicode = args.value<bool>("unicode");
 /* [Arguments-delegating-bool] */
 static_cast<void>(handleUnicode);
 }
+
+{
+/* [Arguments-delegating-ignore-unknown] */
+/* The first instance handles all arguments */
+Utility::Arguments args{"formatter"};
+args.addOption("width", "80").setHelp("width", "number of columns")
+    .addOption("color", "auto").setHelp("color", "output color")
+    .addOption("log", "default").setHelp("log", "default|verbose|quiet")
+    .parse(argc, argv);
+
+{
+    /* A subsystem cares only about the log option, ignoring the rest. It also
+       doesn't need to provide help because that gets handled above already. */
+    Utility::Arguments arg1{"formatter",
+        Utility::Arguments::Flag::IgnoreUnknownOptions};
+    arg1.addOption("log", "default")
+        .parse(argc, argv);
+}
+/* [Arguments-delegating-ignore-unknown] */
+}
+
+{
+/* [Arguments-parse-error-callback] */
+Utility::Arguments args;
+args.addOption("input")
+    .addOption("output")
+    .addBooleanOption("info")
+        .setHelp("info", "print info about the input file and exit")
+    .setParseErrorCallback([](const Utility::Arguments& args,
+                              Utility::Arguments::ParseError error,
+                              const std::string& key) {
+        /* If --info is passed, we don't need the output argument */
+        if(error == Utility::Arguments::ParseError::MissingArgument &&
+           key == "output" &&
+           args.isSet("info")) return true;
+
+        /* Handle all other errors as usual */
+        return false;
+    })
+    .parse(argc, argv);
+/* [Arguments-parse-error-callback] */
+}
+
 }
 };
 
@@ -361,6 +476,19 @@ Utility::Debug{} << "this has default color again";
 }
 
 {
+/* [Debug-source-location] */
+float a = 336;
+
+!Utility::Debug{} << "the result is" << (a /= 8);
+!Utility::Debug{} << "but here it's" << (a /= 8);
+
+!Utility::Debug{};
+
+Utility::Debug{} << "and finally, " << (a *= 8);
+/* [Debug-source-location] */
+}
+
+{
 /* [Debug-nospace] */
 Utility::Debug{} << "Value:" << 16 << Utility::Debug::nospace << "," << 24;
 /* [Debug-nospace] */
@@ -372,6 +500,15 @@ Utility::Debug{} << "Value:" << Utility::Debug::newline << 16;
 Utility::Debug{} << "Value:" << Utility::Debug::nospace << "\n"
     << Utility::Debug::nospace << 16;
 /* [Debug-newline] */
+}
+
+{
+/* [Debug-space] */
+Utility::Debug{} << "Value:";
+
+Utility::Debug{} << "" << 16;
+Utility::Debug{} << Utility::Debug::space << 16;
+/* [Debug-space] */
 }
 
 {
@@ -409,6 +546,32 @@ Utility::Directory::write(to, Utility::Directory::mapRead(from));
 }
 #endif
 
+/* FFS, GCC. According to https://gcc.gnu.org/bugzilla/show_bug.cgi?id=53431,
+   reported back in 2012, for C++ GCC does lexing before parsing #pragmas and
+   thus the -Wmultichar warning *can't* be ignored with a pragma. Because I
+   don't want to compile the whole file with -Wno-multichar, I'm disabling this
+   snippet for GCC. Note to self: check this again in 2025. */
+#if !defined(CORRADE_TARGET_GCC) || defined(CORRADE_TARGET_CLANG)
+{
+#ifdef CORRADE_TARGET_CLANG
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wfour-char-constants"
+#elif defined(CORRADE_TARGET_GCC)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmultichar"
+#endif
+/* [Endianness-fourCC] */
+std::uint32_t a = 'WAVE';
+std::uint32_t b = Utility::Endianness::fourCC('W', 'A', 'V', 'E');
+/* [Endianness-fourCC] */
+static_cast<void>(a);
+static_cast<void>(b);
+#if defined(CORRADE_TARGET_GCC) || defined(CORRADE_TARGET_CLANG)
+#pragma GCC diagnostic pop
+#endif
+}
+#endif
+
 {
 /* [formatString] */
 std::string s = Utility::formatString("{} version {}.{}.{}, {} MB",
@@ -438,7 +601,7 @@ static_cast<void>(s);
 
 {
 /* [formatString-type-precision] */
-std::string s = Utility::formatString("path {{ fill: #{:6x}; stroke: #{:6x}; }}",
+std::string s = Utility::formatString("path {{ fill: #{:.6x}; stroke: #{:.6x}; }}",
     0x33ff00, 0x00aa55);
 // path { fill: #33ff00; stroke: #00aa55; }
 /* [formatString-type-precision] */
@@ -486,6 +649,22 @@ if(watcher.hasChanged()) {
 /* [FileWatcher] */
 }
 #endif
+
+{
+int a = 2;
+int d[5]{};
+int e[5]{};
+int *b = d, *c = e;
+/* [CORRADE_FALLTHROUGH] */
+switch(a) {
+    case 2:
+        *b++ = *c++;
+        CORRADE_FALLTHROUGH
+    case 1:
+        *b++ = *c++;
+};
+/* [CORRADE_FALLTHROUGH] */
+}
 
 {
 /* [CORRADE_LINE_STRING] */
@@ -565,6 +744,25 @@ struct {
 } position;
 };
 }
+
+{
+/* [Sha1-usage] */
+Utility::Sha1 sha1;
+
+/* Add 7 bytes of string data */
+sha1 << std::string{"corrade"};
+
+/* Add four bytes of binary data */
+const char data[4] = { '\x35', '\xf6', '\x00', '\xab' };
+sha1 << Containers::arrayView(data);
+
+/* Print the digest as a hex string */
+Utility::Debug{} << sha1.digest().hexString();
+
+/* Shorthand variant, treating the argument as a string */
+Utility::Debug{} << Utility::Sha1::digest("corrade");
+/* [Sha1-usage] */
+}
 }
 
 typedef std::pair<int, int> T;
@@ -580,12 +778,16 @@ template<> struct TweakableParser<T> {
 
 namespace A {
 
-template<int> class Output;
+struct Fizz;
 /* [CORRADE_DEPRECATED] */
 class CORRADE_DEPRECATED("use Bar instead") Foo;
 CORRADE_DEPRECATED("use bar() instead") void foo();
-typedef CORRADE_DEPRECATED("use Fizz instead") Output<5> Buzz;
+typedef CORRADE_DEPRECATED("use Fizz instead") Fizz Buzz;
+CORRADE_DEPRECATED("use Value instead") constexpr int Vauel = 3;
 /* [CORRADE_DEPRECATED] */
+CORRADE_IGNORE_DEPRECATED_PUSH
+inline void soVauelIsNotUnused() { static_cast<void>(Vauel); } /* eugh */
+CORRADE_IGNORE_DEPRECATED_POP
 
 }
 
@@ -630,9 +832,61 @@ int foo(int a, CORRADE_UNUSED int b) {
 CORRADE_ALIGNAS(4) char data[16]; // so it can be read as 32-bit integers
 /* [CORRADE_ALIGNAS] */
 
-void exit42();
+CORRADE_NORETURN void exit42();
 /* [CORRADE_NORETURN] */
 CORRADE_NORETURN void exit42() { std::exit(42); }
 /* [CORRADE_NORETURN] */
 
+/* [CORRADE_ALWAYS_INLINE] */
+CORRADE_ALWAYS_INLINE int addOne(int a);
+/* [CORRADE_ALWAYS_INLINE] */
+
+int counter = 0;
+/* [CORRADE_NEVER_INLINE] */
+CORRADE_NEVER_INLINE void testFunctionCallOverhead();
+/* [CORRADE_NEVER_INLINE] */
+
+/* [CORRADE_VISIBILITY_EXPORT] */
+void privateFunction(); /* can't be used outside of the shared library */
+
+CORRADE_VISIBILITY_EXPORT void exportedFunction();
+
+class CORRADE_VISIBILITY_EXPORT ExportedClass {
+    public:
+        void foo(); /* Non-inline members get implicitly exported as well */
+
+    private:
+        /* Used only privately, thus doesn't need to be exported */
+        CORRADE_VISIBILITY_LOCAL void privateFoo();
+};
+/* [CORRADE_VISIBILITY_EXPORT] */
+}
+
+namespace D {
+/* [CORRADE_VISIBILITY_EXPORT-dllexport] */
+#ifdef MyLibrary_EXPORTS
+    #define MYLIBRARY_EXPORT CORRADE_VISIBILITY_EXPORT
+#else
+    #define MYLIBRARY_EXPORT CORRADE_VISIBILITY_IMPORT
+#endif
+
+class MYLIBRARY_EXPORT ExportedClass {
+    public:
+        // …
+};
+/* [CORRADE_VISIBILITY_EXPORT-dllexport] */
+}
+
+namespace E {
+extern int stuff;
+/* [CORRADE_VISIBILITY_INLINE_MEMBER_EXPORT] */
+class MYLIBRARY_EXPORT ExportedClass {
+    public:
+        // …
+
+        CORRADE_VISIBILITY_INLINE_MEMBER_EXPORT int inlineFoo() {
+            return stuff + 3;
+        }
+};
+/* [CORRADE_VISIBILITY_INLINE_MEMBER_EXPORT] */
 }

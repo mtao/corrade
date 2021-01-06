@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -46,7 +46,7 @@ builtin @ref acme "single-header generator tool".
 Class, library or header    | Single-header version
 --------------------------- | ----------------------------
 @ref Containers::ArrayView, \n @ref Containers::ArrayView<void>, \n @ref Containers::ArrayView<const void>, \n @ref Containers::StaticArrayView | [CorradeArrayView.h](https://github.com/mosra/magnum-singles/tree/master/CorradeArrayView.h)
-@ref Containers::StridedArrayView | [CorradeStridedArrayView.h](https://github.com/mosra/magnum-singles/tree/master/CorradeStridedArrayView.h), depends on `CorradeStridedArrayView.h`
+@ref Containers::StridedArrayView, \n @ref Containers::StridedArrayView<dimensions, void>, \n @ref Containers::StridedArrayView<dimensions, const void> | [CorradeStridedArrayView.h](https://github.com/mosra/magnum-singles/tree/master/CorradeStridedArrayView.h), depends on `CorradeStridedArrayView.h`
 @ref Containers::Array, \n @ref Containers::StaticArray | [CorradeArray.h](https://github.com/mosra/magnum-singles/tree/master/CorradeArray.h), depends on `CorradeArrayView.h`
 @ref Containers::Optional   | [CorradeOptional.h](https://github.com/mosra/magnum-singles/tree/master/CorradeOptional.h)
 @ref Containers::Pointer    | [CorradePointer.h](https://github.com/mosra/magnum-singles/tree/master/CorradePointer.h)
@@ -56,6 +56,7 @@ Class, library or header    | Single-header version
 @ref Corrade/Utility/StlForwardString.h | [CorradeStlForwardString.h](https://github.com/mosra/magnum-singles/tree/master/CorradeStlForwardString.h)
 @ref Corrade/Utility/StlForwardTuple.h | [CorradeStlForwardTuple.h](https://github.com/mosra/magnum-singles/tree/master/CorradeStlForwardTuple.h)
 @ref Corrade/Utility/StlForwardVector.h | [CorradeStlForwardVector.h](https://github.com/mosra/magnum-singles/tree/master/CorradeStlForwardVector.h)
+@ref Corrade/Utility/StlMath.h | [CorradeStlMath.h](https://github.com/mosra/magnum-singles/tree/master/CorradeStlMath.h)
 
 @section corrade-singles-behavior Behavior
 

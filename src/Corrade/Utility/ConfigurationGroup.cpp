@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -238,9 +238,9 @@ unsigned int ConfigurationGroup::valueCount(const std::string& key) const {
     return count;
 }
 
-std::string ConfigurationGroup::valueInternal(const std::string& key, const unsigned int index, ConfigurationValueFlags) const {
+const std::string* ConfigurationGroup::valueInternal(const std::string& key, const unsigned int index, ConfigurationValueFlags) const {
     const auto it = findValue(key, index);
-    return it != _values.end() ? it->value : std::string();
+    return it != _values.end() ? &it->value : nullptr;
 }
 
 std::vector<std::string> ConfigurationGroup::valuesInternal(const std::string& key, ConfigurationValueFlags) const {

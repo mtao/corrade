@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -27,6 +27,7 @@
 #include <sstream>
 
 #include "Corrade/Containers/Array.h"
+#include "Corrade/Containers/String.h"
 #include "Corrade/Containers/ScopeGuard.h"
 #include "Corrade/TestSuite/Tester.h"
 #include "Corrade/TestSuite/Compare/FileToString.h"
@@ -62,9 +63,7 @@ struct FormatTest: TestSuite::Tester {
 
     void floatingFloat();
     void floatingDouble();
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     void floatingLongDouble();
-    #endif
     template<class T> void floatingPrecision();
 
     void floatGeneric();
@@ -76,9 +75,16 @@ struct FormatTest: TestSuite::Tester {
     void floatBase();
 
     void charArray();
-    void charArrayView();
+    void stringView();
+    void mutableStringView();
     void string();
+    #ifdef CORRADE_BUILD_DEPRECATED
+    void charArrayView();
+    #endif
+    void stlString();
     void stringPrecision();
+
+    void enumConstant();
 
     void multiple();
     void numbered();
@@ -94,9 +100,7 @@ struct FormatTest: TestSuite::Tester {
     void appendToString();
     void insertToString();
     void file();
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     void fileLongDouble();
-    #endif
 
     void tooLittlePlaceholders();
     void tooManyPlaceholders();
@@ -141,14 +145,10 @@ FormatTest::FormatTest() {
 
               &FormatTest::floatingFloat,
               &FormatTest::floatingDouble,
-              #ifndef CORRADE_TARGET_EMSCRIPTEN
               &FormatTest::floatingLongDouble,
-              #endif
               &FormatTest::floatingPrecision<float>,
               &FormatTest::floatingPrecision<double>,
-              #ifndef CORRADE_TARGET_EMSCRIPTEN
               &FormatTest::floatingPrecision<long double>,
-              #endif
 
               &FormatTest::floatGeneric,
               &FormatTest::floatGenericUppercase,
@@ -159,9 +159,16 @@ FormatTest::FormatTest() {
               &FormatTest::floatBase,
 
               &FormatTest::charArray,
-              &FormatTest::charArrayView,
+              &FormatTest::stringView,
+              &FormatTest::mutableStringView,
               &FormatTest::string,
+              #ifdef CORRADE_BUILD_DEPRECATED
+              &FormatTest::charArrayView,
+              #endif
+              &FormatTest::stlString,
               &FormatTest::stringPrecision,
+
+              &FormatTest::enumConstant,
 
               &FormatTest::multiple,
               &FormatTest::numbered,
@@ -177,9 +184,7 @@ FormatTest::FormatTest() {
               &FormatTest::appendToString,
               &FormatTest::insertToString,
               &FormatTest::file,
-              #ifndef CORRADE_TARGET_EMSCRIPTEN
               &FormatTest::fileLongDouble,
-              #endif
 
               &FormatTest::tooLittlePlaceholders,
               &FormatTest::tooManyPlaceholders,
@@ -267,6 +272,10 @@ void FormatTest::hexadecimalUppercase() {
 }
 
 void FormatTest::integerFloat() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectError{&out};
 
@@ -324,17 +333,7 @@ void FormatTest::floatingDouble() {
     #endif
 }
 
-#ifndef CORRADE_TARGET_EMSCRIPTEN
 void FormatTest::floatingLongDouble() {
-    /* That's the case for MSVC as well, source:
-       https://msdn.microsoft.com/en-us/library/9cx8xs15.aspx */
-    if(sizeof(double) == sizeof(long double))
-        CORRADE_SKIP("long double is equivalent to double on this system.");
-
-    #ifdef CORRADE_TARGET_ANDROID
-    CORRADE_EXPECT_FAIL_IF(sizeof(void*) == 4,
-        "Android has precision problems with long double on 32bit.");
-    #endif
     CORRADE_COMPARE(formatString("{}", 12.3404l), "12.3404");
     #ifndef __MINGW32__
     CORRADE_COMPARE(formatString("{}", -1.32e+67l), "-1.32e+67");
@@ -342,11 +341,10 @@ void FormatTest::floatingLongDouble() {
     CORRADE_COMPARE(formatString("{}", -1.32e+67l), "-1.32e+067");
     #endif
 }
-#endif
 
 template<class> struct FloatingPrecisionData;
 template<> struct FloatingPrecisionData<float> {
-    static const char* name() { return "floatingPrecision<float>"; }
+    static const char* name() { return "float"; }
     static const char* expected() {
         #ifndef __MINGW32__
         return "3.14159 -12345.7 1.23457e-12 3.14159";
@@ -356,7 +354,7 @@ template<> struct FloatingPrecisionData<float> {
     }
 };
 template<> struct FloatingPrecisionData<double> {
-    static const char* name() { return "floatingPrecision<double>"; }
+    static const char* name() { return "double"; }
     static const char* expected() {
         #ifndef __MINGW32__
         return "3.14159265358979 -12345.6789012346 1.23456789012346e-12 3.14159";
@@ -365,35 +363,28 @@ template<> struct FloatingPrecisionData<double> {
         #endif
     }
 };
-#ifndef CORRADE_TARGET_EMSCRIPTEN
 template<> struct FloatingPrecisionData<long double> {
-    static const char* name() { return "floatingPrecision<long double>"; }
+    static const char* name() { return "long double"; }
     static const char* expected() {
         #ifndef __MINGW32__
+        #ifndef CORRADE_LONG_DOUBLE_SAME_AS_DOUBLE
         return "3.14159265358979324 -12345.6789012345679 1.23456789012345679e-12 3.14159";
+        #else
+        return "3.14159265358979 -12345.6789012346 1.23456789012346e-12 3.14159";
+        #endif
         #else
         return "3.14159265358979324 -12345.6789012345679 1.23456789012345679e-012 3.14159";
         #endif
     }
 };
-#endif
 
 template<class T> void FormatTest::floatingPrecision() {
-    setTestCaseName(FloatingPrecisionData<T>::name());
+    setTestCaseTemplateName(FloatingPrecisionData<T>::name());
 
     /* This test is shared with DebugTest to ensure consistency of output */
 
-    /* That's the case for MSVC as well, source:
-       https://msdn.microsoft.com/en-us/library/9cx8xs15.aspx */
-    if(std::is_same<T, long double>::value && sizeof(double) == sizeof(long double))
-        CORRADE_SKIP("long double is equivalent to double on this system.");
-
     /* The last float value is to verify that the precision gets reset back */
     {
-        #ifdef CORRADE_TARGET_ANDROID
-        CORRADE_EXPECT_FAIL_IF((std::is_same<T, long double>::value && sizeof(void*) == 4),
-            "Android has precision problems with long double on 32bit.");
-        #endif
         CORRADE_COMPARE(formatString("{} {} {} {}",
             T(3.1415926535897932384626l),
             T(-12345.67890123456789l),
@@ -409,9 +400,7 @@ void FormatTest::floatGeneric() {
     CORRADE_COMPARE(formatString("{}", 1234.0e5f), "1.234e+008");
     #endif
     CORRADE_COMPARE(formatString("{}", 1234.0e5), "123400000");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{}", 1234.0e5l), "123400000");
-    #endif
 
     #ifndef __MINGW32__
     CORRADE_COMPARE(formatString("{:g}", 1234.0e5f), "1.234e+08");
@@ -419,31 +408,21 @@ void FormatTest::floatGeneric() {
     CORRADE_COMPARE(formatString("{:g}", 1234.0e5f), "1.234e+008");
     #endif
     CORRADE_COMPARE(formatString("{:g}", 1234.0e5), "123400000");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:g}", 1234.0e5l), "123400000");
-    #endif
 
     CORRADE_COMPARE(formatString("{:.3}", 1.0f), "1");
     CORRADE_COMPARE(formatString("{:.3}", 1.0), "1");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3}", 1.0l), "1");
-    #endif
     CORRADE_COMPARE(formatString("{:.3}", 12.34567f), "12.3");
     CORRADE_COMPARE(formatString("{:.3}", 12.34567), "12.3");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3}", 12.34567l), "12.3");
-    #endif
 
     CORRADE_COMPARE(formatString("{:.3g}", 1.0f), "1");
     CORRADE_COMPARE(formatString("{:.3g}", 1.0), "1");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3g}", 1.0l), "1");
-    #endif
     CORRADE_COMPARE(formatString("{:.3g}", 12.34567f), "12.3");
     CORRADE_COMPARE(formatString("{:.3g}", 12.34567), "12.3");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3g}", 12.34567l), "12.3");
-    #endif
 }
 
 void FormatTest::floatGenericUppercase() {
@@ -453,28 +432,24 @@ void FormatTest::floatGenericUppercase() {
     CORRADE_COMPARE(formatString("{:G}", 1234.0e5f), "1.234E+008");
     #endif
     CORRADE_COMPARE(formatString("{:G}", 1234.0e5), "123400000");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:G}", 1234.0e5l), "123400000");
-    #endif
 
     CORRADE_COMPARE(formatString("{:.3G}", 1.0f), "1");
     CORRADE_COMPARE(formatString("{:.3G}", 1.0), "1");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3G}", 1.0l), "1");
-    #endif
     CORRADE_COMPARE(formatString("{:.3G}", 12.34567f), "12.3");
     CORRADE_COMPARE(formatString("{:.3G}", 12.34567), "12.3");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3G}", 12.34567l), "12.3");
-    #endif
 }
 
 void FormatTest::floatExponent() {
     #ifndef __MINGW32__
     CORRADE_COMPARE(formatString("{:e}", 1234.0e5f), "1.234000e+08");
     CORRADE_COMPARE(formatString("{:e}", 1234.0e5), "1.234000000000000e+08");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
+    #ifndef CORRADE_LONG_DOUBLE_SAME_AS_DOUBLE
     CORRADE_COMPARE(formatString("{:e}", 1234.0e5l), "1.234000000000000000e+08");
+    #else
+    CORRADE_COMPARE(formatString("{:e}", 1234.0e5l), "1.234000000000000e+08");
     #endif
     #else
     CORRADE_COMPARE(formatString("{:e}", 1234.0e5f), "1.234000e+008");
@@ -485,14 +460,10 @@ void FormatTest::floatExponent() {
     #ifndef __MINGW32__
     CORRADE_COMPARE(formatString("{:.3e}", 1.0f), "1.000e+00");
     CORRADE_COMPARE(formatString("{:.3e}", 1.0), "1.000e+00");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3e}", 1.0l), "1.000e+00");
-    #endif
     CORRADE_COMPARE(formatString("{:.3e}", 12.34567f), "1.235e+01");
     CORRADE_COMPARE(formatString("{:.3e}", 12.34567), "1.235e+01");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3e}", 12.34567l), "1.235e+01");
-    #endif
     #else
     CORRADE_COMPARE(formatString("{:.3e}", 1.0f), "1.000e+000");
     CORRADE_COMPARE(formatString("{:.3e}", 1.0), "1.000e+000");
@@ -507,8 +478,10 @@ void FormatTest::floatExponentUppercase() {
     #ifndef __MINGW32__
     CORRADE_COMPARE(formatString("{:E}", 1234.0e5f), "1.234000E+08");
     CORRADE_COMPARE(formatString("{:E}", 1234.0e5), "1.234000000000000E+08");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
+    #ifndef CORRADE_LONG_DOUBLE_SAME_AS_DOUBLE
     CORRADE_COMPARE(formatString("{:E}", 1234.0e5l), "1.234000000000000000E+08");
+    #else
+    CORRADE_COMPARE(formatString("{:E}", 1234.0e5l), "1.234000000000000E+08");
     #endif
     #else
     CORRADE_COMPARE(formatString("{:E}", 1234.0e5f), "1.234000E+008");
@@ -519,14 +492,10 @@ void FormatTest::floatExponentUppercase() {
     #ifndef __MINGW32__
     CORRADE_COMPARE(formatString("{:.3E}", 1.0f), "1.000E+00");
     CORRADE_COMPARE(formatString("{:.3E}", 1.0), "1.000E+00");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3E}", 1.0l), "1.000E+00");
-    #endif
     CORRADE_COMPARE(formatString("{:.3E}", 12.34567f), "1.235E+01");
     CORRADE_COMPARE(formatString("{:.3E}", 12.34567), "1.235E+01");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3E}", 12.34567l), "1.235E+01");
-    #endif
     #else
     CORRADE_COMPARE(formatString("{:.3E}", 1.0f), "1.000E+000");
     CORRADE_COMPARE(formatString("{:.3E}", 1.0), "1.000E+000");
@@ -540,44 +509,44 @@ void FormatTest::floatExponentUppercase() {
 void FormatTest::floatFixed() {
     CORRADE_COMPARE(formatString("{:f}", 1234.0e5f), "123400000.000000");
     CORRADE_COMPARE(formatString("{:f}", 1234.0e5), "123400000.000000000000000");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
+    #ifndef CORRADE_LONG_DOUBLE_SAME_AS_DOUBLE
     CORRADE_COMPARE(formatString("{:f}", 1234.0e5l), "123400000.000000000000000000");
+    #else
+    CORRADE_COMPARE(formatString("{:f}", 1234.0e5l), "123400000.000000000000000");
     #endif
     CORRADE_COMPARE(formatString("{:f}", std::numeric_limits<float>::quiet_NaN()), "nan");
 
     CORRADE_COMPARE(formatString("{:.3f}", 1.0f), "1.000");
     CORRADE_COMPARE(formatString("{:.3f}", 1.0), "1.000");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3f}", 1.0l), "1.000");
-    #endif
     CORRADE_COMPARE(formatString("{:.3f}", 12.34567f), "12.346");
     CORRADE_COMPARE(formatString("{:.3f}", 12.34567), "12.346");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3f}", 12.34567l), "12.346");
-    #endif
 }
 
 void FormatTest::floatFixedUppercase() {
     CORRADE_COMPARE(formatString("{:F}", 1234.0e5f), "123400000.000000");
     CORRADE_COMPARE(formatString("{:F}", 1234.0e5), "123400000.000000000000000");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
+    #ifndef CORRADE_LONG_DOUBLE_SAME_AS_DOUBLE
     CORRADE_COMPARE(formatString("{:F}", 1234.0e5l), "123400000.000000000000000000");
+    #else
+    CORRADE_COMPARE(formatString("{:F}", 1234.0e5l), "123400000.000000000000000");
     #endif
     CORRADE_COMPARE(formatString("{:F}", std::numeric_limits<float>::quiet_NaN()), "NAN");
 
     CORRADE_COMPARE(formatString("{:.3F}", 1.0f), "1.000");
     CORRADE_COMPARE(formatString("{:.3F}", 1.0), "1.000");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3F}", 1.0l), "1.000");
-    #endif
     CORRADE_COMPARE(formatString("{:.3F}", 12.34567f), "12.346");
     CORRADE_COMPARE(formatString("{:.3F}", 12.34567), "12.346");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
     CORRADE_COMPARE(formatString("{:.3F}", 12.34567l), "12.346");
-    #endif
 }
 
 void FormatTest::floatBase() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectError{&out};
 
@@ -586,15 +555,11 @@ void FormatTest::floatBase() {
     char buffer[128]{};
     formatInto(buffer, "{:o}", 123456.0f);
     formatInto(buffer, "{:x}", 123456.0);
-    CORRADE_COMPARE(out.str(),
-        "Utility::format(): integral type used for a floating-point value\n"
-        "Utility::format(): integral type used for a floating-point value\n");
-    #ifndef CORRADE_TARGET_EMSCRIPTEN
-    out.str({});
     formatInto(buffer, "{:d}", 123456.0l);
     CORRADE_COMPARE(out.str(),
+        "Utility::format(): integral type used for a floating-point value\n"
+        "Utility::format(): integral type used for a floating-point value\n"
         "Utility::format(): integral type used for a floating-point value\n");
-    #endif
 }
 
 void FormatTest::charArray() {
@@ -606,14 +571,34 @@ void FormatTest::charArray() {
     CORRADE_COMPARE(formatString("hello {}", false ? "world" : "nobody"), "hello nobody");
 }
 
-void FormatTest::charArrayView() {
-    CORRADE_COMPARE(formatString("hello {}", Containers::arrayView("worlds", 5)),
+void FormatTest::stringView() {
+    using namespace Containers::Literals;
+
+    CORRADE_COMPARE(formatString("hello {}", "worlds"_s.except(1)),
         "hello world");
-    CORRADE_COMPARE(formatString("hello {}", Containers::arrayView("world\0, i guess?", 16)),
+    CORRADE_COMPARE(formatString("hello {}", "world\0, i guess?"_s),
         (std::string{"hello world\0, i guess?", 22}));
 }
 
+void FormatTest::mutableStringView() {
+    Containers::String a = "world";
+    CORRADE_COMPARE(formatString("hello {}", Containers::MutableStringView{a}),
+        "hello world");
+}
+
 void FormatTest::string() {
+    CORRADE_COMPARE(formatString("hello {}", Containers::String{"world"}),
+        "hello world");
+}
+
+#ifdef CORRADE_BUILD_DEPRECATED
+void FormatTest::charArrayView() {
+    CORRADE_COMPARE(formatString("hello {}", Containers::arrayView("worlds", 5)),
+        "hello world");
+}
+#endif
+
+void FormatTest::stlString() {
     CORRADE_COMPARE(formatString("hello {}", std::string{"worlds", 5}),
         "hello world");
     CORRADE_COMPARE(formatString("hello {}", std::string{"world\0, i guess?", 16}),
@@ -622,6 +607,25 @@ void FormatTest::string() {
 
 void FormatTest::stringPrecision() {
     CORRADE_COMPARE(formatString("{:.4}", "hello world"), "hell");
+}
+
+enum: std::uint64_t { SomeValue = 12345678901234ull };
+enum Enum { SomeDifferentValue };
+
+}}
+
+namespace Implementation {
+    template<> struct Formatter<Test::Enum> {
+        static std::size_t format(const Containers::ArrayView<char>& buffer, Test::Enum, int precision, FormatType type) {
+            return Formatter<const char*>::format(buffer, "SomeDifferentValue", precision, type);
+        }
+    };
+}
+
+namespace Test { namespace {
+
+void FormatTest::enumConstant() {
+    CORRADE_COMPARE(formatString("value: {} but an enum: {}", SomeValue, SomeDifferentValue), "value: 12345678901234 but an enum: SomeDifferentValue");
 }
 
 void FormatTest::multiple() {
@@ -717,7 +721,6 @@ void FormatTest::file() {
         TestSuite::Compare::FileToString);
 }
 
-#ifndef CORRADE_TARGET_EMSCRIPTEN
 void FormatTest::fileLongDouble() {
     const std::string filename = Directory::join(FORMAT_WRITE_TEST_DIR, "format-long-double.txt");
     if(!Directory::exists(FORMAT_WRITE_TEST_DIR))
@@ -730,21 +733,10 @@ void FormatTest::fileLongDouble() {
         CORRADE_VERIFY(f);
         Containers::ScopeGuard e{f, fclose};
         formatInto(f, "{}", 12.3404l);
-    } {
-        /* That's the case for MSVC as well, source:
-           https://msdn.microsoft.com/en-us/library/9cx8xs15.aspx */
-        if(sizeof(double) == sizeof(long double))
-            CORRADE_SKIP("long double is equivalent to double on this system.");
-
-        #ifdef CORRADE_TARGET_ANDROID
-        CORRADE_EXPECT_FAIL_IF(sizeof(void*) == 4,
-            "Android has precision problems with long double on 32bit.");
-        #endif
-        CORRADE_COMPARE_AS(filename, "12.3404",
-            TestSuite::Compare::FileToString);
     }
+
+    CORRADE_COMPARE_AS(filename, "12.3404", TestSuite::Compare::FileToString);
 }
-#endif
 
 void FormatTest::tooLittlePlaceholders() {
     /* Not a problem */
@@ -762,6 +754,10 @@ void FormatTest::emptyFormat() {
 }
 
 void FormatTest::tooSmallBuffer() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectError{&out};
 
@@ -777,6 +773,10 @@ void FormatTest::tooSmallBuffer() {
 }
 
 void FormatTest::mismatchedDelimiter() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectError{&out};
 
@@ -802,6 +802,10 @@ void FormatTest::mismatchedDelimiter() {
 }
 
 void FormatTest::unknownPlaceholderContent() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectError{&out};
 
@@ -819,6 +823,10 @@ void FormatTest::unknownPlaceholderContent() {
 }
 
 void FormatTest::invalidPrecision() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectError{&out};
 
@@ -834,6 +842,10 @@ void FormatTest::invalidPrecision() {
 }
 
 void FormatTest::typeForString() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectError{&out};
 
@@ -847,6 +859,10 @@ void FormatTest::typeForString() {
 }
 
 void FormatTest::invalidType() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectError{&out};
 

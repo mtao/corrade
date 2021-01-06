@@ -2,7 +2,7 @@
 #   This file is part of Corrade.
 #
 #   Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-#               2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+#               2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a
 #   copy of this software and associated documentation files (the "Software"),
@@ -23,7 +23,17 @@
 #   DEALINGS IN THE SOFTWARE.
 #
 
+corrade_add_test(MainTest MainTest.cpp
+    ARGUMENTS --arg-utf hýždě --arg-another šňůra)
+
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/configure.h.cmake
+               ${CMAKE_CURRENT_BINARY_DIR}/configure.h)
 corrade_add_test(TargetTest TargetTest.cpp)
+target_include_directories(TargetTest PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+
+# Prefixed with project name to avoid conflicts with VersionTest in Magnum and
+# related repos
+corrade_add_test(CorradeVersionTest VersionTest.cpp)
 
 # Baseline, C++11, is everywhere
 corrade_add_test(Cpp11StandardTest CppStandardTest.cpp)
@@ -43,9 +53,27 @@ if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOT CMAKE_CXX_COMPILER_VERSION VERS
    (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS "7.0") OR
    (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC"))
     corrade_add_test(Cpp14StandardTest CppStandardTest.cpp)
-    set_target_properties(Cpp14StandardTest PROPERTIES
-        CORRADE_CXX_STANDARD 14
-        COMPILE_DEFINITIONS COMPILING_AS_CPP14)
+    set_target_properties(Cpp14StandardTest PROPERTIES CORRADE_CXX_STANDARD 14)
+    target_compile_definitions(Cpp14StandardTest PRIVATE
+        COMPILING_AS_CPP14 "TEST_NAME=\"Cpp14StandardTest\"")
+
+    # Test also clashes of corrade's own setter and CMake one
+    corrade_add_test(Cpp14StandardTestCMakeStandard CppStandardTest.cpp)
+    set_target_properties(Cpp14StandardTestCMakeStandard PROPERTIES
+        CORRADE_CXX_STANDARD 17 # This should get ignored even tho it's higher
+        CXX_STANDARD 14)
+    target_compile_definitions(Cpp14StandardTestCMakeStandard PRIVATE
+        COMPILING_AS_CPP14 "TEST_NAME=\"Cpp14StandardTestCMakeStandard\"")
+
+    # cxx_std_* features are only since CMake 3.8
+    if(NOT CMAKE_VERSION VERSION_LESS 3.8)
+        corrade_add_test(Cpp14StandardTestCMakeFeatures CppStandardTest.cpp)
+         # This should get ignored even tho it's higher
+        set_target_properties(Cpp14StandardTestCMakeFeatures PROPERTIES CORRADE_CXX_STANDARD 17)
+        target_compile_features(Cpp14StandardTestCMakeFeatures PRIVATE cxx_std_14)
+        target_compile_definitions(Cpp14StandardTestCMakeFeatures PRIVATE
+            COMPILING_AS_CPP14 "TEST_NAME=\"Cpp14StandardTestCMakeFeatures\"")
+    endif()
 endif()
 
 # Test for C++17:

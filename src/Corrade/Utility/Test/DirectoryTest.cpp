@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -27,15 +27,25 @@
 #include <vector>
 
 #include "Corrade/Containers/Array.h"
+#include "Corrade/Containers/Optional.h"
+#include "Corrade/Containers/ScopeGuard.h"
 #include "Corrade/TestSuite/Tester.h"
+#include "Corrade/TestSuite/Compare/Container.h"
 #include "Corrade/TestSuite/Compare/File.h"
 #include "Corrade/TestSuite/Compare/FileToString.h"
-#include "Corrade/TestSuite/Compare/Container.h"
+#include "Corrade/TestSuite/Compare/Numeric.h"
 #include "Corrade/TestSuite/Compare/SortedContainer.h"
 #include "Corrade/Utility/DebugStl.h"
 #include "Corrade/Utility/Directory.h"
 
+#include <clocale>
+
 #include "configure.h"
+
+#ifdef CORRADE_UTILITY_LINUX
+/* Needed for an XFAIL in libraryLocation() for older glibcs */
+#include <dlfcn.h>
+#endif
 
 namespace Corrade { namespace Utility { namespace Test { namespace {
 
@@ -46,6 +56,7 @@ struct DirectoryTest: TestSuite::Tester {
     void toNativeSeparators();
     void path();
     void filename();
+    void splitExtension();
     void join();
     #ifdef CORRADE_TARGET_WINDOWS
     void joinWindows();
@@ -58,6 +69,9 @@ struct DirectoryTest: TestSuite::Tester {
 
     void exists();
     void existsUtf8();
+
+    void isDirectory();
+    void isDirectoryUtf8();
 
     void removeFile();
     void removeDirectory();
@@ -73,6 +87,11 @@ struct DirectoryTest: TestSuite::Tester {
 
     void isSandboxed();
 
+    void current();
+    void currentUtf8();
+
+    void libraryLocation();
+    void libraryLocationUtf8();
     void executableLocation();
     void executableLocationUtf8();
 
@@ -94,9 +113,17 @@ struct DirectoryTest: TestSuite::Tester {
     void listSortPrecedence();
     void listUtf8();
 
+    void fileSize();
+    void fileSizeEmpty();
+    void fileSizeNonSeekable();
+    void fileSizeEarlyEof();
+    void fileSizeNonexistent();
+    void fileSizeUtf8();
+
     void read();
     void readEmpty();
     void readNonSeekable();
+    void readEarlyEof();
     void readNonexistent();
     void readUtf8();
 
@@ -128,12 +155,16 @@ struct DirectoryTest: TestSuite::Tester {
     #endif
 
     void map();
-    void mapNoPermission();
+    void mapNonexistent();
     void mapUtf8();
 
     void mapRead();
     void mapReadNonexistent();
     void mapReadUtf8();
+
+    void mapWrite();
+    void mapWriteNoPermission();
+    void mapWriteUtf8();
 
     std::string _testDir,
         _testDirUtf8,
@@ -145,6 +176,7 @@ DirectoryTest::DirectoryTest() {
               &DirectoryTest::toNativeSeparators,
               &DirectoryTest::path,
               &DirectoryTest::filename,
+              &DirectoryTest::splitExtension,
               &DirectoryTest::join,
               #ifdef CORRADE_TARGET_WINDOWS
               &DirectoryTest::joinWindows,
@@ -157,6 +189,9 @@ DirectoryTest::DirectoryTest() {
 
               &DirectoryTest::exists,
               &DirectoryTest::existsUtf8,
+
+              &DirectoryTest::isDirectory,
+              &DirectoryTest::isDirectoryUtf8,
 
               &DirectoryTest::removeFile,
               &DirectoryTest::removeDirectory,
@@ -172,6 +207,11 @@ DirectoryTest::DirectoryTest() {
 
               &DirectoryTest::isSandboxed,
 
+              &DirectoryTest::current,
+              &DirectoryTest::currentUtf8,
+
+              &DirectoryTest::libraryLocation,
+              &DirectoryTest::libraryLocationUtf8,
               &DirectoryTest::executableLocation,
               &DirectoryTest::executableLocationUtf8,
 
@@ -193,9 +233,17 @@ DirectoryTest::DirectoryTest() {
               &DirectoryTest::listSortPrecedence,
               &DirectoryTest::listUtf8,
 
+              &DirectoryTest::fileSize,
+              &DirectoryTest::fileSizeEmpty,
+              &DirectoryTest::fileSizeNonSeekable,
+              &DirectoryTest::fileSizeEarlyEof,
+              &DirectoryTest::fileSizeNonexistent,
+              &DirectoryTest::fileSizeUtf8,
+
               &DirectoryTest::read,
               &DirectoryTest::readEmpty,
               &DirectoryTest::readNonSeekable,
+              &DirectoryTest::readEarlyEof,
               &DirectoryTest::readNonexistent,
               &DirectoryTest::readUtf8,
 
@@ -232,12 +280,16 @@ DirectoryTest::DirectoryTest() {
     #endif
 
     addTests({&DirectoryTest::map,
-              &DirectoryTest::mapNoPermission,
+              &DirectoryTest::mapNonexistent,
               &DirectoryTest::mapUtf8,
 
               &DirectoryTest::mapRead,
               &DirectoryTest::mapReadNonexistent,
-              &DirectoryTest::mapReadUtf8});
+              &DirectoryTest::mapReadUtf8,
+
+              &DirectoryTest::mapWrite,
+              &DirectoryTest::mapWriteNoPermission,
+              &DirectoryTest::mapWriteUtf8});
 
     #ifdef CORRADE_TARGET_APPLE
     if(Directory::isSandboxed()
@@ -302,6 +354,41 @@ void DirectoryTest::filename() {
     CORRADE_COMPARE(Directory::filename("foo/bar/map.conf"), "map.conf");
 }
 
+void DirectoryTest::splitExtension() {
+    /* In case you're not sure about the behavior, cross-check with Python's
+       os.path.splitext(). */
+
+    /* Empty */
+    CORRADE_COMPARE(Directory::splitExtension(""), std::make_pair("", ""));
+
+    /* Usual case */
+    CORRADE_COMPARE(Directory::splitExtension("file.txt"), std::make_pair("file", ".txt"));
+
+    /* Double extension */
+    CORRADE_COMPARE(Directory::splitExtension("file.tar.gz"), std::make_pair("file.tar", ".gz"));
+
+    /* No extension */
+    CORRADE_COMPARE(Directory::splitExtension("/etc/passwd"), std::make_pair("/etc/passwd", ""));
+
+    /* Dot not a part of the file */
+    CORRADE_COMPARE(Directory::splitExtension("/etc/rc.conf/file"), std::make_pair("/etc/rc.conf/file", ""));
+
+    /* Dot at the end */
+    CORRADE_COMPARE(Directory::splitExtension("/home/no."), std::make_pair("/home/no", "."));
+
+    /* Dotfile, prefixed or not */
+    CORRADE_COMPARE(Directory::splitExtension("/home/mosra/.bashrc"), std::make_pair("/home/mosra/.bashrc", ""));
+    CORRADE_COMPARE(Directory::splitExtension(".bashrc"), std::make_pair(".bashrc", ""));
+
+    /* One level up, prefixed or not */
+    CORRADE_COMPARE(Directory::splitExtension("/home/mosra/Code/.."), std::make_pair("/home/mosra/Code/..", ""));
+    CORRADE_COMPARE(Directory::splitExtension(".."), std::make_pair("..", ""));
+
+    /* This directory */
+    CORRADE_COMPARE(Directory::splitExtension("/home/mosra/."), std::make_pair("/home/mosra/.", ""));
+    CORRADE_COMPARE(Directory::splitExtension("."), std::make_pair(".", ""));
+}
+
 void DirectoryTest::join() {
     /* Empty path */
     CORRADE_COMPARE(Directory::join("", "/foo.txt"), "/foo.txt");
@@ -355,10 +442,40 @@ void DirectoryTest::exists() {
 
     /* Nonexistent file */
     CORRADE_VERIFY(!Directory::exists(Directory::join(_testDir, "nonexistentFile")));
+
+    /* Current directory, empty */
+    CORRADE_VERIFY(Directory::exists("."));
+    CORRADE_VERIFY(!Directory::exists(""));
 }
 
 void DirectoryTest::existsUtf8() {
     CORRADE_VERIFY(Directory::exists(Directory::join(_testDirUtf8, "hýždě")));
+}
+
+void DirectoryTest::isDirectory() {
+    {
+        #if defined(CORRADE_TARGET_IOS) && defined(CORRADE_TESTSUITE_TARGET_XCTEST)
+        CORRADE_EXPECT_FAIL_IF(!std::getenv("SIMULATOR_UDID"),
+            "iOS (in a simulator) thinks all paths are files.");
+        #endif
+        CORRADE_VERIFY(Directory::isDirectory(Directory::join(_testDir, "dir")));
+    }
+
+    CORRADE_VERIFY(!Directory::isDirectory(Directory::join(_testDir, "file")));
+
+    /* Nonexistent file */
+    CORRADE_VERIFY(!Directory::isDirectory(Directory::join(_testDir, "nonexistentFile")));
+}
+
+void DirectoryTest::isDirectoryUtf8() {
+    {
+        #if defined(CORRADE_TARGET_IOS) && defined(CORRADE_TESTSUITE_TARGET_XCTEST)
+        CORRADE_EXPECT_FAIL_IF(!std::getenv("SIMULATOR_UDID"),
+            "iOS (in a simulator) thinks all paths are files.");
+        #endif
+        CORRADE_VERIFY(Directory::isDirectory(Directory::join(_testDirUtf8, "šňůra")));
+    }
+    CORRADE_VERIFY(!Directory::isDirectory(Directory::join(_testDirUtf8, "hýždě")));
 }
 
 void DirectoryTest::removeFile() {
@@ -463,6 +580,29 @@ void DirectoryTest::mkpath() {
 
     CORRADE_VERIFY(Directory::mkpath(leaf));
     CORRADE_VERIFY(Directory::exists(leaf));
+
+    /* Creating current directory should be a no-op because it exists */
+    CORRADE_VERIFY(Directory::exists("."));
+    {
+        #ifdef CORRADE_TARGET_EMSCRIPTEN
+        CORRADE_EXPECT_FAIL("Emscripten doesn't return EEXIST on mdkir(\".\") but fails instead.");
+        #endif
+        CORRADE_VERIFY(Directory::mkpath("."));
+    }
+
+    /* Parent as well */
+    CORRADE_VERIFY(Directory::exists(".."));
+    {
+        #ifdef CORRADE_TARGET_EMSCRIPTEN
+        CORRADE_EXPECT_FAIL("Emscripten doesn't return EEXIST on mdkir(\"..\") but fails instead.");
+        #endif
+        CORRADE_VERIFY(Directory::mkpath(".."));
+    }
+
+    /* Empty should be just a no-op without checking anything. Not like
+       in Python, where `os.makedirs('', exist_ok=True)` stupidly fails with
+        FileNotFoundError: [Errno 2] No such file or directory: '' */
+    CORRADE_VERIFY(Directory::mkpath(""));
 }
 
 void DirectoryTest::mkpathNoPermission() {
@@ -475,12 +615,44 @@ void DirectoryTest::mkpathNoPermission() {
     if(Directory::exists("/nope"))
         CORRADE_SKIP("Can't test because the destination might be writeable");
 
-    CORRADE_VERIFY(!Directory::mkpath("/nope/never"));
+    std::ostringstream out;
+    {
+        /* Ensure errors are printed in English */
+        char* currentLocale = std::setlocale(LC_ALL, nullptr);
+        std::setlocale(LC_ALL, "C");
+        Containers::ScopeGuard restoreLocale{currentLocale, [](char* locale) {
+            std::setlocale(LC_ALL, locale);
+        }};
+
+        Error redirectError{&out};
+        CORRADE_VERIFY(!Directory::mkpath("/nope/never"));
+    }
+
+    #ifdef CORRADE_TARGET_ANDROID
+    CORRADE_COMPARE(out.str(),
+        "Utility::Directory::mkpath(): error creating /nope: Read-only file system\n");
+    #else
+    CORRADE_COMPARE(out.str(),
+        "Utility::Directory::mkpath(): error creating /nope: Permission denied\n");
+    #endif
+
     #else
     if(Directory::exists("W:/"))
         CORRADE_SKIP("Can't test because the destination might be writeable");
 
-    CORRADE_VERIFY(!Directory::mkpath("W:/nope"));
+    std::ostringstream out;
+    {
+        Error redirectError{&out};
+        CORRADE_VERIFY(!Directory::mkpath("W:/nope"));
+    }
+
+    /* On Windows we cannot ensure messages are printed in a certain
+     * language, as they depend on the user's installed languages */
+    const std::string output = out.str();
+    CORRADE_COMPARE(output.substr(0, 49),
+        "Utility::Directory::mkpath(): error creating W:: ");
+    /* Check that there's just one newline at the end, not two */
+    CORRADE_COMPARE(output.find('\n'), output.size() - 1);
     #endif
 }
 
@@ -496,6 +668,101 @@ void DirectoryTest::isSandboxed() {
     CORRADE_VERIFY(Directory::isSandboxed());
     #else
     CORRADE_VERIFY(!Directory::isSandboxed());
+    #endif
+}
+
+void DirectoryTest::current() {
+    const std::string current = Directory::current();
+    Debug() << "Current directory found as:" << current;
+
+    /* Ensure the test is not accidentally false positive due to stale files */
+    if(Directory::exists("currentDir.mark"))
+        CORRADE_VERIFY(Directory::rm("currentDir.mark"));
+    CORRADE_VERIFY(!Directory::exists("currentDir.mark"));
+
+    /* Create a file on a relative path. If current directory is correctly
+       queried, it should exist there */
+    CORRADE_VERIFY(Directory::write("currentDir.mark",
+        "hi, i'm testing Utility::Directory::current()"));
+    CORRADE_VERIFY(Directory::exists(Directory::join(current, "currentDir.mark")));
+
+    /* Clean up after ourselves */
+    CORRADE_VERIFY(Directory::rm("currentDir.mark"));
+}
+
+void DirectoryTest::currentUtf8() {
+    CORRADE_SKIP("Not sure how to test this.");
+}
+
+void DirectoryTest::libraryLocation() {
+    #ifdef CORRADE_BUILD_STATIC
+    CORRADE_SKIP("Corrade built as static, no libraries to test against.");
+    #endif
+
+    #if defined(CORRADE_TARGET_UNIX) || (defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT))
+    const std::string libraryLocation = Directory::libraryLocation(&Utility::Directory::rm);
+
+    Debug{} << "Corrade::Utility library location found as:" << libraryLocation;
+
+    /* Shouldn't be empty */
+    CORRADE_VERIFY(!libraryLocation.empty());
+
+    {
+        /* https://sourceware.org/bugzilla/show_bug.cgi?id=20292 probably?
+           doesn't seem like that, but couldn't find anything else in the
+           changelog that would be relevant */
+        #ifdef __GLIBC__
+        #if __GLIBC__*100 + __GLIBC_MINOR__ < 225
+        CORRADE_EXPECT_FAIL("glibc < 2.25 returns executable location from dladdr()");
+        #endif
+        CORRADE_VERIFY(libraryLocation != Directory::executableLocation());
+        #endif
+
+        /* There should be a TestSuite library next to this one */
+        const std::string testSuiteLibraryName =
+            #ifdef CORRADE_TARGET_WINDOWS
+            #ifdef __MINGW32__
+            "lib"
+            #endif
+            #ifdef CORRADE_IS_DEBUG_BUILD
+            "CorradeTestSuite-d.dll"
+            #else
+            "CorradeTestSuite.dll"
+            #endif
+            #elif defined(CORRADE_TARGET_APPLE)
+            #ifdef CORRADE_IS_DEBUG_BUILD
+            "libCorradeTestSuite-d.dylib"
+            #else
+            "libCorradeTestSuite.dylib"
+            #endif
+            #else
+            #ifdef CORRADE_IS_DEBUG_BUILD
+            "libCorradeTestSuite-d.so"
+            #else
+            "libCorradeTestSuite.so"
+            #endif
+            #endif
+            ;
+        CORRADE_VERIFY(Directory::exists(Directory::join(Directory::path(libraryLocation), testSuiteLibraryName)));
+    }
+
+    #ifdef CORRADE_TARGET_WINDOWS
+    /* It shouldn't contain backslashes */
+    CORRADE_COMPARE(libraryLocation.find('\\'), std::string::npos);
+    #endif
+
+    /* Passing a null pointer should fail */
+    CORRADE_COMPARE(Directory::libraryLocation(nullptr), "");
+    #else
+    CORRADE_SKIP("Not implemented on this platform.");
+    #endif
+}
+
+void DirectoryTest::libraryLocationUtf8() {
+    #if defined(CORRADE_TARGET_UNIX) || (defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT))
+    CORRADE_SKIP("Not sure how to test this.");
+    #else
+    CORRADE_SKIP("Not implemented on this platform.");
     #endif
 }
 
@@ -527,13 +794,14 @@ void DirectoryTest::executableLocation() {
     CORRADE_VERIFY(executableLocation.find("UtilityDirectoryTest") != std::string::npos);
     CORRADE_VERIFY(Directory::exists(Directory::join(Directory::path(executableLocation), "DirectoryTestFiles")));
 
-    /* Otherwise it should contain CMake build files */
+    /* Otherwise it should contain other executables and libraries as we put
+       all together */
     #else
     {
-        #ifdef CMAKE_INTDIR
-        CORRADE_VERIFY(Directory::exists(Directory::join(Directory::path(Directory::path(executableLocation)), "CMakeFiles")));
+        #ifndef CORRADE_TARGET_WINDOWS
+        CORRADE_VERIFY(Directory::exists(Directory::join(Directory::path(executableLocation), "corrade-rc")));
         #else
-        CORRADE_VERIFY(Directory::exists(Directory::join(Directory::path(executableLocation), "CMakeFiles")));
+        CORRADE_VERIFY(Directory::exists(Directory::join(Directory::path(executableLocation), "corrade-rc.exe")));
         #endif
     }
     #endif
@@ -764,26 +1032,90 @@ void DirectoryTest::listSortPrecedence() {
 }
 
 void DirectoryTest::listUtf8() {
+    std::vector<std::string> list{".", "..", "hýždě", "šňůra"};
+
+    std::vector<std::string> actual = Directory::list(_testDirUtf8, Directory::Flag::SortAscending);
+
+    #ifdef CORRADE_TARGET_APPLE
+    /* Apple HFS+ stores filenames in a decomposed normalized form to avoid
+       e.g. `e` + `ˇ` and `ě` being treated differently. That makes sense. I
+       wonder why neither Linux nor Windows do this. */
+    std::vector<std::string> listDecomposedUnicode{".", "..", "hýždě", "šňůra"};
+    CORRADE_VERIFY(list[3] != listDecomposedUnicode[3]);
+    #endif
+
+    #ifdef CORRADE_TARGET_APPLE
     #if defined(CORRADE_TARGET_IOS) && defined(CORRADE_TESTSUITE_TARGET_XCTEST)
     CORRADE_EXPECT_FAIL_IF(!std::getenv("SIMULATOR_UDID"),
         "CTest is not able to run XCTest executables properly in the simulator.");
     #endif
 
-    std::vector<std::string> list{".", "..",
-        #ifdef CORRADE_TARGET_APPLE
-        /* Apple HFS+ stores filenames in a decomposed normalized form to avoid
-           e.g. `e` + `ˇ` and `ě` being treated differently. That makes sense.
-           I wonder why neither Linux nor Windows do this. */
-        "šňůra", "hýždě",
-        #else
-        "šňůra", "hýždě"
-        #endif
-        };
-    CORRADE_COMPARE_AS(Directory::list(_testDirUtf8), list,
-        TestSuite::Compare::SortedContainer);
+    /* However, Apple systems still can use filesystems other than HFS+, so
+       be prepared that it can compare to either */
+    if(actual[3] == listDecomposedUnicode[3]) {
+        CORRADE_COMPARE_AS(actual, listDecomposedUnicode,
+            TestSuite::Compare::Container);
+    } else
+    #endif
+    {
+        CORRADE_COMPARE_AS(actual, list, TestSuite::Compare::Container);
+    }
 }
 
 constexpr const char Data[]{'\xCA', '\xFE', '\xBA', '\xBE', '\x0D', '\x0A', '\x00', '\xDE', '\xAD', '\xBE', '\xEF'};
+
+void DirectoryTest::fileSize() {
+    /* Existing file, containing  */
+    CORRADE_COMPARE(Directory::fileSize(Directory::join(_testDir, "file")),
+        Containers::arraySize(Data));
+}
+
+void DirectoryTest::fileSizeEmpty() {
+    const std::string empty = Directory::join(_testDir, "dir/dummy");
+    CORRADE_VERIFY(Directory::exists(empty));
+    CORRADE_VERIFY(!Directory::read(empty));
+}
+
+void DirectoryTest::fileSizeNonSeekable() {
+    /* macOS or BSD doesn't have /proc */
+    #if defined(__unix__) && !defined(CORRADE_TARGET_EMSCRIPTEN) && \
+        !defined(__FreeBSD__) && !defined(__OpenBSD__) && !defined(__bsdi__) && \
+        !defined(__NetBSD__) && !defined(__DragonFly__)
+    /** @todo Test more thoroughly than this */
+    const auto data = Directory::read("/proc/loadavg");
+    CORRADE_VERIFY(!data.empty());
+    #else
+    CORRADE_SKIP("Not implemented on this platform.");
+    #endif
+}
+
+void DirectoryTest::fileSizeEarlyEof() {
+    #ifdef __linux__
+    constexpr const char* file = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor";
+    if(!Directory::exists(file))
+        CORRADE_SKIP(file + std::string{" doesn't exist, can't test"});
+    Containers::Optional<std::size_t> size = Directory::fileSize(file);
+    CORRADE_VERIFY(size);
+    CORRADE_COMPARE_AS(*size, Directory::read(file).size(),
+        TestSuite::Compare::Greater);
+    #else
+    CORRADE_SKIP("Not sure how to test on this platform.");
+    #endif
+}
+
+void DirectoryTest::fileSizeNonexistent() {
+    std::ostringstream out;
+    Error err{&out};
+    CORRADE_COMPARE(Directory::fileSize("nonexistent"), Containers::NullOpt);
+    CORRADE_COMPARE(out.str(), "Utility::Directory::fileSize(): can't open nonexistent\n");
+}
+
+void DirectoryTest::fileSizeUtf8() {
+    /* Existing file, check if we are reading it as binary (CR+LF is not
+       converted to LF) and nothing after \0 gets lost */
+    CORRADE_COMPARE(Directory::fileSize(Directory::join(_testDirUtf8, "hýždě")),
+        Containers::arraySize(Data));
+}
 
 void DirectoryTest::read() {
     /* Existing file, check if we are reading it as binary (CR+LF is not
@@ -813,6 +1145,17 @@ void DirectoryTest::readNonSeekable() {
     CORRADE_VERIFY(!data.empty());
     #else
     CORRADE_SKIP("Not implemented on this platform.");
+    #endif
+}
+
+void DirectoryTest::readEarlyEof() {
+    #ifdef __linux__
+    if(!Directory::exists("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"))
+        CORRADE_SKIP("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor doesn't exist, can't test");
+    const auto data = Directory::read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor");
+    CORRADE_VERIFY(!data.empty());
+    #else
+    CORRADE_SKIP("Not sure how to test on this platform.");
     #endif
 }
 
@@ -1008,11 +1351,11 @@ void DirectoryTest::prepareFileToBenchmarkCopy() {
     if(Directory::exists(Directory::join(_writeTestDir, "copyBenchmarkSource.dat")))
         return;
 
-    /* Append a megabyte file 100 times to create a 100MB file */
+    /* Append a megabyte file 50 times to create a 50MB file */
     Containers::Array<int> data{Containers::ValueInit, 256*1024};
     for(std::size_t i = 0; i != data.size(); ++i) data[i] = 4678641 + i;
 
-    for(std::size_t i = 0; i != 100; ++i)
+    for(std::size_t i = 0; i != 50; ++i)
         Directory::append(Directory::join(_writeTestDir, "copyBenchmarkSource.dat"), data);
 }
 
@@ -1052,31 +1395,39 @@ void DirectoryTest::copy100MMap() {
 void DirectoryTest::map() {
     #if defined(CORRADE_TARGET_UNIX) || (defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT))
     std::string data{"\xCA\xFE\xBA\xBE\x0D\x0A\x00\xDE\xAD\xBE\xEF", 11};
+    std::string file = Directory::join(_writeTestDir, "mappedFile");
+    if(Directory::exists(file)) CORRADE_VERIFY(Directory::rm(file));
+    Directory::writeString(file, data);
+
     {
-        auto mappedFile = Directory::map(Directory::join(_writeTestDir, "mappedFile"), data.size());
-        CORRADE_VERIFY(mappedFile);
-        CORRADE_COMPARE(mappedFile.size(), data.size());
-        std::copy(std::begin(data), std::end(data), mappedFile.begin());
+        auto mappedFile = Directory::map(file);
+        CORRADE_COMPARE_AS(Containers::arrayView(mappedFile),
+            Containers::arrayView<char>({'\xCA', '\xFE', '\xBA', '\xBE', '\x0D', '\x0A', '\x00', '\xDE', '\xAD', '\xBE', '\xEF'}),
+            TestSuite::Compare::Container);
+
+        /* Write a thing there */
+        mappedFile[2] = '\xCA';
+        mappedFile[3] = '\xFE';
+
+        /* Implicit unmap */
     }
-    CORRADE_COMPARE_AS(Directory::join(_writeTestDir, "mappedFile"),
-        data,
+
+    /* The file should be changed */
+    CORRADE_COMPARE_AS(file,
+        (std::string{"\xCA\xFE\xCA\xFE\x0D\x0A\x00\xDE\xAD\xBE\xEF", 11}),
         TestSuite::Compare::FileToString);
     #else
     CORRADE_SKIP("Not implemented on this platform.");
     #endif
 }
 
-void DirectoryTest::mapNoPermission() {
+void DirectoryTest::mapNonexistent() {
     #if defined(CORRADE_TARGET_UNIX) || (defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT))
-    if(Directory::home() == "/root")
-        CORRADE_SKIP("Running under root, can't test for permissions.");
-
     {
         std::ostringstream out;
         Error err{&out};
-        auto mappedFile = Directory::map("/root/mappedFile", 64);
-        CORRADE_VERIFY(!mappedFile);
-        CORRADE_COMPARE(out.str(), "Utility::Directory::map(): can't open /root/mappedFile\n");
+        CORRADE_VERIFY(!Directory::map("nonexistent"));
+        CORRADE_COMPARE(out.str(), "Utility::Directory::map(): can't open nonexistent\n");
     }
     #else
     CORRADE_SKIP("Not implemented on this platform.");
@@ -1085,16 +1436,12 @@ void DirectoryTest::mapNoPermission() {
 
 void DirectoryTest::mapUtf8() {
     #if defined(CORRADE_TARGET_UNIX) || (defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT))
-    std::string data{"\xCA\xFE\xBA\xBE\x0D\x0A\x00\xDE\xAD\xBE\xEF", 11};
     {
-        auto mappedFile = Directory::map(Directory::join(_writeTestDir, "hýždě chlípníka"), data.size());
-        CORRADE_VERIFY(mappedFile);
-        CORRADE_COMPARE(mappedFile.size(), data.size());
-        std::copy(std::begin(data), std::end(data), mappedFile.begin());
+        const auto mappedFile = Directory::map(Directory::join(_testDirUtf8, "hýždě"));
+        CORRADE_COMPARE_AS(Containers::arrayView(mappedFile),
+            Containers::arrayView<char>({'\xCA', '\xFE', '\xBA', '\xBE', '\x0D', '\x0A', '\x00', '\xDE', '\xAD', '\xBE', '\xEF'}),
+            TestSuite::Compare::Container);
     }
-    CORRADE_COMPARE_AS(Directory::join(_writeTestDir, "hýždě chlípníka"),
-        data,
-        TestSuite::Compare::FileToString);
     #else
     CORRADE_SKIP("Not implemented on this platform.");
     #endif
@@ -1136,6 +1483,57 @@ void DirectoryTest::mapReadUtf8() {
                 {'\xCA', '\xFE', '\xBA', '\xBE', '\x0D', '\x0A', '\x00', '\xDE', '\xAD', '\xBE', '\xEF'}}),
             TestSuite::Compare::Container);
     }
+    #else
+    CORRADE_SKIP("Not implemented on this platform.");
+    #endif
+}
+
+void DirectoryTest::mapWrite() {
+    #if defined(CORRADE_TARGET_UNIX) || (defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT))
+    std::string data{"\xCA\xFE\xBA\xBE\x0D\x0A\x00\xDE\xAD\xBE\xEF", 11};
+    {
+        auto mappedFile = Directory::mapWrite(Directory::join(_writeTestDir, "mappedWriteFile"), data.size());
+        CORRADE_VERIFY(mappedFile);
+        CORRADE_COMPARE(mappedFile.size(), data.size());
+        std::copy(std::begin(data), std::end(data), mappedFile.begin());
+    }
+    CORRADE_COMPARE_AS(Directory::join(_writeTestDir, "mappedWriteFile"),
+        data,
+        TestSuite::Compare::FileToString);
+    #else
+    CORRADE_SKIP("Not implemented on this platform.");
+    #endif
+}
+
+void DirectoryTest::mapWriteNoPermission() {
+    #if defined(CORRADE_TARGET_UNIX) || (defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT))
+    if(Directory::home() == "/root")
+        CORRADE_SKIP("Running under root, can't test for permissions.");
+
+    {
+        std::ostringstream out;
+        Error err{&out};
+        auto mappedFile = Directory::mapWrite("/root/mappedFile", 64);
+        CORRADE_VERIFY(!mappedFile);
+        CORRADE_COMPARE(out.str(), "Utility::Directory::mapWrite(): can't open /root/mappedFile\n");
+    }
+    #else
+    CORRADE_SKIP("Not implemented on this platform.");
+    #endif
+}
+
+void DirectoryTest::mapWriteUtf8() {
+    #if defined(CORRADE_TARGET_UNIX) || (defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT))
+    std::string data{"\xCA\xFE\xBA\xBE\x0D\x0A\x00\xDE\xAD\xBE\xEF", 11};
+    {
+        auto mappedFile = Directory::mapWrite(Directory::join(_writeTestDir, "hýždě chlípníka"), data.size());
+        CORRADE_VERIFY(mappedFile);
+        CORRADE_COMPARE(mappedFile.size(), data.size());
+        std::copy(std::begin(data), std::end(data), mappedFile.begin());
+    }
+    CORRADE_COMPARE_AS(Directory::join(_writeTestDir, "hýždě chlípníka"),
+        data,
+        TestSuite::Compare::FileToString);
     #else
     CORRADE_SKIP("Not implemented on this platform.");
     #endif

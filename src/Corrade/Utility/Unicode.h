@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -47,14 +47,14 @@ namespace Corrade { namespace Utility {
 @brief Unicode utilities
 
 This library is built if `WITH_UTILITY` is enabled when building Corrade. To
-use this library with CMake, you need to request the `Utility` component of the
-`Corrade` package and link to the `Corrade::Utility` target.
+use this library with CMake, request the `Utility` component of the `Corrade`
+package and link to the `Corrade::Utility` target.
 
 @code{.cmake}
 find_package(Corrade REQUIRED Utility)
 
 # ...
-target_link_libraries(your-app Corrade::Utility)
+target_link_libraries(your-app PRIVATE Corrade::Utility)
 @endcode
 
 See also @ref building-corrade and @ref corrade-cmake for more information.

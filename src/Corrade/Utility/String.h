@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -43,14 +43,14 @@ namespace Corrade { namespace Utility {
 @brief String utilities
 
 This library is built if `WITH_UTILITY` is enabled when building Corrade. To
-use this library with CMake, you need to request the `Utility` component of the
-`Corrade` package and link to the `Corrade::Utility` target.
+use this library with CMake, request the `Utility` component of the `Corrade`
+package and link to the `Corrade::Utility` target.
 
 @code{.cmake}
 find_package(Corrade REQUIRED Utility)
 
 # ...
-target_link_libraries(your-app Corrade::Utility)
+target_link_libraries(your-app PRIVATE Corrade::Utility)
 @endcode
 
 See also @ref building-corrade and @ref corrade-cmake for more information.
@@ -66,7 +66,8 @@ namespace Implementation {
     CORRADE_UTILITY_EXPORT std::string rtrim(std::string string, Containers::ArrayView<const char> characters);
     CORRADE_UTILITY_EXPORT std::string trim(std::string string, Containers::ArrayView<const char> characters);
 
-    CORRADE_UTILITY_EXPORT std::vector<std::string> splitWithoutEmptyParts(const std::string& string, Containers::ArrayView<const char> delimiters);
+    CORRADE_UTILITY_EXPORT std::string join(const std::vector<std::string>& strings, Containers::ArrayView<const char> delimiter);
+    CORRADE_UTILITY_EXPORT std::string joinWithoutEmptyParts(const std::vector<std::string>& strings, Containers::ArrayView<const char> delimiter);
 
     CORRADE_UTILITY_EXPORT bool beginsWith(Containers::ArrayView<const char> string, Containers::ArrayView<const char> prefix);
     CORRADE_UTILITY_EXPORT bool endsWith(Containers::ArrayView<const char> string, Containers::ArrayView<const char> suffix);
@@ -254,51 +255,158 @@ CORRADE_UTILITY_EXPORT void trimInPlace(std::string& string);
 @brief Split string on given character
 @param string       String to split
 @param delimiter    Delimiter
+
+@see @ref Containers::StringView::split(char) const
 */
 CORRADE_UTILITY_EXPORT std::vector<std::string> split(const std::string& string, char delimiter);
+
+#ifdef CORRADE_BUILD_DEPRECATED
+/**
+@overload
+@m_deprecated_since_latest Use @ref Containers::StringView::split(char) const
+    instead.
+*/
+CORRADE_UTILITY_EXPORT CORRADE_DEPRECATED("use Containers::StringView::split() instead") Containers::Array<Containers::StringView> split(Containers::StringView string, char delimiter);
+#endif
 
 /**
 @brief Split string on given character and remove empty parts
 @param string       String to split
 @param delimiter    Delimiter
+
+@see @ref Containers::StringView::splitWithoutEmptyParts(char) const
 */
 CORRADE_UTILITY_EXPORT std::vector<std::string> splitWithoutEmptyParts(const std::string& string, char delimiter);
+
+#ifdef CORRADE_BUILD_DEPRECATED
+/**
+@overload
+@m_deprecated_since_latest Use
+    @ref Containers::StringView::splitWithoutEmptyParts(char) const instead.
+*/
+CORRADE_UTILITY_EXPORT CORRADE_DEPRECATED("use Containers::StringView::splitWithoutEmptyParts() instead") Containers::Array<Containers::StringView> splitWithoutEmptyParts(Containers::StringView string, char delimiter);
+#endif
 
 /**
 @brief Split string on any character from given set and remove empty parts
 @param string       String to split
 @param delimiters   Delimiter characters
-*/
-inline std::vector<std::string> splitWithoutEmptyParts(const std::string& string, const std::string& delimiters) {
-    return Implementation::splitWithoutEmptyParts(string, {delimiters.data(), delimiters.size()});
-}
 
-/** @overload */
-template<std::size_t size> inline std::vector<std::string> splitWithoutEmptyParts(const std::string& string, const char(&delimiters)[size]) {
-    return Implementation::splitWithoutEmptyParts(string, {delimiters, size - 1});
-}
+@see @ref Containers::StringView::splitWithoutEmptyParts(StringView) const
+*/
+CORRADE_UTILITY_EXPORT std::vector<std::string> splitWithoutEmptyParts(const std::string& string, const std::string& delimiters);
+
+#ifdef CORRADE_BUILD_DEPRECATED
+/**
+@overload
+@m_deprecated_since_latest Use
+    @ref Containers::StringView::splitWithoutEmptyParts(StringView) const
+    instead.
+*/
+CORRADE_UTILITY_EXPORT CORRADE_DEPRECATED("use Containers::StringView::splitWithoutEmptyParts() instead") Containers::Array<Containers::StringView> splitWithoutEmptyParts(Containers::StringView string, Containers::StringView delimiters);
+#endif
 
 /**
 @brief Split string on whitespaces and remove empty parts
 
-Equivalent to calling @ref splitWithoutEmptyParts(const std::string&, const char(&)[size])
+Equivalent to calling @ref splitWithoutEmptyParts(const std::string&, const std::string&)
 with @cpp " \t\f\v\r\n" @ce as second parameter.
+
+@see @ref Containers::StringView::splitWithoutEmptyParts() const
 */
 CORRADE_UTILITY_EXPORT std::vector<std::string> splitWithoutEmptyParts(const std::string& string);
+
+#ifdef CORRADE_BUILD_DEPRECATED
+/**
+@overload
+@m_deprecated_since_latest Use
+    @ref Containers::StringView::splitWithoutEmptyParts() const instead.
+*/
+CORRADE_UTILITY_EXPORT CORRADE_DEPRECATED("use Containers::StringView::splitWithoutEmptyParts() instead") Containers::Array<Containers::StringView> splitWithoutEmptyParts(const Containers::StringView string);
+#endif
+
+/**
+@brief Partition a string
+@m_since{2019,10}
+
+Equivalent to Python's @m_class{m-doc-external} [str.partition()](https://docs.python.org/3/library/stdtypes.html#str.partition).
+Splits @p string at the first occurence of @p separator. First returned value
+is the part before the separator, second the separator, third a part after the
+separator. If the separator is not found, returns the input string followed by
+two empty strings.
+@see @ref rpartition(), @ref Directory::splitExtension(),
+    @ref Containers::BasicStringView::partition()
+*/
+CORRADE_UTILITY_EXPORT Containers::StaticArray<3, std::string> partition(const std::string& string, char separator);
+
+/**
+@overload
+@m_since{2019,10}
+*/
+CORRADE_UTILITY_EXPORT Containers::StaticArray<3, std::string> partition(const std::string& string, const std::string& separator);
+
+/**
+@brief Right-partition a string
+@m_since{2019,10}
+
+Equivalent to Python's @m_class{m-doc-external} [str.rpartition()](https://docs.python.org/3/library/stdtypes.html#str.rpartition).
+Splits @p string at the last occurence of @p separator. First returned value is
+the part before the separator, second the separator, third a part after the
+separator. If the separator is not found, returns two empty strings followed by
+the input string.
+@see @ref partition(), @ref Directory::splitExtension()
+*/
+CORRADE_UTILITY_EXPORT Containers::StaticArray<3, std::string> rpartition(const std::string& string, char separator);
+
+/**
+@overload
+@m_since{2019,10}
+*/
+CORRADE_UTILITY_EXPORT Containers::StaticArray<3, std::string> rpartition(const std::string& string, const std::string& separator);
 
 /**
 @brief Join strings with given character
 @param strings      Strings to join
 @param delimiter    Delimiter
 */
-CORRADE_UTILITY_EXPORT std::string join(const std::vector<std::string>& strings, char delimiter);
+inline std::string join(const std::vector<std::string>& strings, char delimiter) {
+    return Implementation::join(strings, {&delimiter, 1});
+}
+
+/**
+@overload
+@m_since{2019,10}
+*/
+template<std::size_t size> inline std::string join(const std::vector<std::string>& strings, const char(&delimiter)[size]) {
+    return Implementation::join(strings, {delimiter, size - 1});
+}
+
+/**
+@overload
+@m_since{2019,10}
+*/
+inline std::string join(const std::vector<std::string>& strings, const std::string& delimiter) {
+    return Implementation::join(strings, {delimiter.data(), delimiter.size()});
+}
 
 /**
 @brief Join strings with given character and remove empty parts
 @param strings      Strings to join
 @param delimiter    Delimiter
 */
-CORRADE_UTILITY_EXPORT std::string joinWithoutEmptyParts(const std::vector<std::string>& strings, char delimiter);
+inline std::string joinWithoutEmptyParts(const std::vector<std::string>& strings, char delimiter) {
+    return Implementation::joinWithoutEmptyParts(strings, {&delimiter, 1});
+}
+
+/** @overload */
+template<std::size_t size> inline std::string joinWithoutEmptyParts(const std::vector<std::string>& strings, const char(&delimiter)[size]) {
+    return Implementation::joinWithoutEmptyParts(strings, {delimiter, size - 1});
+}
+
+/** @overload */
+inline std::string joinWithoutEmptyParts(const std::vector<std::string>& strings, const std::string& delimiter) {
+    return Implementation::joinWithoutEmptyParts(strings, {delimiter.data(), delimiter.size()});
+}
 
 /**
 @brief Convert string to lowercase
@@ -319,7 +427,8 @@ CORRADE_UTILITY_EXPORT std::string uppercase(std::string string);
 
 In particular, returns @cpp true @ce for empty @p string only if @p prefix is
 empty as well.
-@see @ref viewBeginsWith(), @ref stripPrefix()
+@see @ref viewBeginsWith(), @ref stripPrefix(),
+    @ref Containers::StringView::hasPrefix()
 */
 inline bool beginsWith(const std::string& string, const std::string& prefix) {
     return Implementation::beginsWith({string.data(), string.size()}, {prefix.data(), prefix.size()});
@@ -335,28 +444,33 @@ inline bool beginsWith(const std::string& string, char prefix) {
     return !string.empty() && string[0] == prefix;
 }
 
+#ifdef CORRADE_BUILD_DEPRECATED
 /**
 @brief Whether string view has given prefix
-
-In particular, returns @cpp true @ce for empty @p string only if @p prefix is
-empty as well.
-@see @ref beginsWith()
+@m_deprecated_since_latest Use @ref Containers::StringView::hasPrefix()
+    instead.
 */
-template<std::size_t size> inline bool viewBeginsWith(Containers::ArrayView<const char> string, const char(&prefix)[size]) {
+template<std::size_t size> inline CORRADE_DEPRECATED("use Containers::StringView::beginsWith() instead") bool viewBeginsWith(Containers::ArrayView<const char> string, const char(&prefix)[size]) {
     return Implementation::beginsWith(string, {prefix, size - 1});
 }
 
-/** @overload */
-inline bool viewBeginsWith(Containers::ArrayView<const char> string, char prefix) {
+/**
+@overload
+@m_deprecated_since_latest Use @ref Containers::StringView::hasPrefix()
+    instead.
+*/
+inline CORRADE_DEPRECATED("use Containers::StringView::beginsWith() instead") bool viewBeginsWith(Containers::ArrayView<const char> string, char prefix) {
     return !string.empty() && string[0] == prefix;
 }
+#endif
 
 /**
 @brief Whether the string has given suffix
 
 In particular, returns @cpp true @ce for empty @p string only if @p suffix is
 empty as well.
-@see @ref viewEndsWith(), @ref stripSuffix()
+@see @ref viewEndsWith(), @ref stripSuffix(),
+    @ref Containers::StringView::hasSuffix()
 */
 inline bool endsWith(const std::string& string, const std::string& suffix) {
     return Implementation::endsWith({string.data(), string.size()}, {suffix.data(), suffix.size()});
@@ -372,27 +486,31 @@ inline bool endsWith(const std::string& string, char suffix) {
     return !string.empty() && string[string.size() - 1] == suffix;
 }
 
+#ifdef CORRADE_BUILD_DEPRECATED
 /**
 @brief Whether string view has given suffix
-
-In particular, returns @cpp true @ce for empty @p string only if @p suffix is
-empty as well.
-@see @ref endsWith()
+@m_deprecated_since_latest Use @ref Containers::StringView::hasSuffix()
+    instead.
 */
-template<std::size_t size> inline bool viewEndsWith(Containers::ArrayView<const char> string, const char(&suffix)[size]) {
+template<std::size_t size> inline CORRADE_DEPRECATED("use Containers::StringView::endsWith() instead") bool viewEndsWith(Containers::ArrayView<const char> string, const char(&suffix)[size]) {
     return Implementation::endsWith(string, {suffix, size - 1});
 }
 
-/** @overload */
-inline bool viewEndsWith(Containers::ArrayView<const char> string, char suffix) {
+/**
+@overload
+@m_deprecated_since_latest Use @ref Containers::StringView::hasSuffix()
+    instead.
+*/
+inline CORRADE_DEPRECATED("use Containers::StringView::endsWith() instead") bool viewEndsWith(Containers::ArrayView<const char> string, char suffix) {
     return !string.empty() && string[string.size() - 1] == suffix;
 }
+#endif
 
 /**
 @brief Strip given prefix from a string
 
 Expects that the string actually begins with given prefix.
-@see @ref beginsWith()
+@see @ref beginsWith(), @ref Containers::StringView::stripPrefix()
 */
 inline std::string stripPrefix(std::string string, const std::string& prefix) {
     return Implementation::stripPrefix(std::move(string), {prefix.data(), prefix.size()});
@@ -412,7 +530,7 @@ inline std::string stripPrefix(std::string string, char prefix) {
 @brief Strip given suffix from a string
 
 Expects that the string actually ends with given suffix.
-@see @ref endsWith()
+@see @ref endsWith(), @ref Containers::StringView::stripSuffix()
 */
 inline std::string stripSuffix(std::string string, const std::string& suffix) {
     return Implementation::stripSuffix(std::move(string), {suffix.data(), suffix.size()});

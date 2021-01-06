@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -33,6 +33,7 @@
 #include <string>
 #include <vector>
 
+#include "Corrade/Containers/StringStl.h"
 #include "Corrade/Utility/ConfigurationValue.h"
 #include "Corrade/Utility/Utility.h"
 #include "Corrade/Utility/visibility.h"
@@ -128,7 +129,9 @@ class CORRADE_UTILITY_EXPORT ConfigurationGroup {
          *
          * @see @ref hasGroups(), @ref valueCount()
          */
-        unsigned int groupCount() const { return _groups.size(); }
+        unsigned int groupCount() const {
+            return static_cast<unsigned int>(_groups.size());
+        }
 
         /**
          * @brief Whether given group exists
@@ -210,7 +213,11 @@ class CORRADE_UTILITY_EXPORT ConfigurationGroup {
          */
         void removeAllGroups(const std::string& name);
 
-        /*@}*/
+        /* Since 1.8.17, the original short-hand group closing doesn't work
+           anymore. FFS. */
+        /**
+         * @}
+         */
 
         /** @{ @name Value operations */
 
@@ -380,7 +387,11 @@ class CORRADE_UTILITY_EXPORT ConfigurationGroup {
          */
         void removeAllValues(const std::string& key);
 
-        /*@}*/
+        /* Since 1.8.17, the original short-hand group closing doesn't work
+           anymore. FFS. */
+        /**
+         * @}
+         */
 
         /**
          * @brief Clear group
@@ -407,7 +418,8 @@ class CORRADE_UTILITY_EXPORT ConfigurationGroup {
         CORRADE_UTILITY_LOCAL std::vector<Value>::iterator findValue(const std::string& key, unsigned int index);
         CORRADE_UTILITY_LOCAL std::vector<Value>::const_iterator findValue(const std::string& key, unsigned int index) const;
 
-        std::string valueInternal(const std::string& key, unsigned int index, ConfigurationValueFlags flags) const;
+        /* Returns nullptr in case the key is not found */
+        const std::string* valueInternal(const std::string& key, unsigned int index, ConfigurationValueFlags flags) const;
         std::vector<std::string> valuesInternal(const std::string& key, ConfigurationValueFlags flags) const;
         bool setValueInternal(const std::string& key, std::string value, unsigned int number, ConfigurationValueFlags flags);
         void addValueInternal(std::string key, std::string value, ConfigurationValueFlags flags);
@@ -423,7 +435,8 @@ class CORRADE_UTILITY_EXPORT ConfigurationGroup {
 template<> bool ConfigurationGroup::setValue(const std::string&, const std::string&, unsigned int, ConfigurationValueFlags) = delete;
 template<> void ConfigurationGroup::addValue(std::string, const std::string&, ConfigurationValueFlags) = delete;
 template<> inline std::string ConfigurationGroup::value(const std::string& key, unsigned int index, const ConfigurationValueFlags flags) const {
-    return valueInternal(key, index, flags);
+    const std::string* value = valueInternal(key, index, flags);
+    return value ? *value : std::string{};
 }
 template<> inline std::vector<std::string> ConfigurationGroup::values(const std::string& key, const ConfigurationValueFlags flags) const {
     return valuesInternal(key, flags);
@@ -431,8 +444,11 @@ template<> inline std::vector<std::string> ConfigurationGroup::values(const std:
 #endif
 
 template<class T> inline T ConfigurationGroup::value(const std::string& key, const unsigned int index, const ConfigurationValueFlags flags) const {
-    std::string value = valueInternal(key, index, flags);
-    return ConfigurationValue<T>::fromString(value, flags);
+    const std::string* value = valueInternal(key, index, flags);
+    /* Can't do value ? *value : std::string{} BECAUSE THAT MAKES A COPY! C++
+       YOU'RE FIRED */
+    const std::string empty;
+    return ConfigurationValue<T>::fromString(value ? *value : empty, flags);
 }
 
 template<class T> std::vector<T> ConfigurationGroup::values(const std::string& key, const ConfigurationValueFlags flags) const {

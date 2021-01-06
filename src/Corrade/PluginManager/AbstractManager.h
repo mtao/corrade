@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -33,7 +33,6 @@
 #include "Corrade/Containers/Pointer.h"
 #include "Corrade/PluginManager/PluginManager.h"
 #include "Corrade/PluginManager/visibility.h"
-#include "Corrade/Utility/Resource.h"
 #include "Corrade/Utility/StlForwardString.h"
 #include "Corrade/Utility/StlForwardVector.h"
 #include "Corrade/Utility/Utility.h"
@@ -83,8 +82,9 @@ enum class LoadState: unsigned short {
     WrongInterfaceVersion = 1 << 2,
 
     /**
-     * The plugin doesn't have any metadata file or the metadata file contains
-     * errors. Returned by @ref AbstractManager::load().
+     * The plugin doesn't have any associated `*.conf` metadata file or the
+     * metadata file contains errors. Returned by
+     * @ref AbstractManager::loadState() and @ref AbstractManager::load().
      * @partialsupport Not available on platforms without
      *      @ref CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT "dynamic plugin support".
      */
@@ -92,7 +92,10 @@ enum class LoadState: unsigned short {
 
     /**
      * The plugin depends on another plugin, which cannot be loaded (e.g. not
-     * found or wrong version). Returned by @ref AbstractManager::load().
+     * found or wrong version). Returned by @ref AbstractManager::load(). Note
+     * that plugins may have cross-manager dependencies, and to resolve these
+     * you need to explicitly pass a manager instance containing the
+     * dependencies to @ref AbstractManager::registerExternalManager().
      * @partialsupport Not available on platforms without
      *      @ref CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT "dynamic plugin support".
      */
@@ -186,8 +189,15 @@ typedef Containers::EnumSet<LoadState> LoadStates;
 
 CORRADE_ENUMSET_OPERATORS(LoadStates)
 
+/** @debugoperatorenum{LoadStates} */
+CORRADE_PLUGINMANAGER_EXPORT Utility::Debug& operator<<(Utility::Debug& debug, PluginManager::LoadStates value);
+
+namespace Implementation {
+    struct StaticPlugin;
+}
+
 /**
-@brief Non-templated base for plugin managers
+@brief Base for plugin managers
 
 See @ref Manager and @ref plugin-management for more information.
  */
@@ -197,11 +207,6 @@ class CORRADE_PLUGINMANAGER_EXPORT AbstractManager {
     public:
         /** @brief Plugin version */
         static const int Version;
-
-        #ifndef DOXYGEN_GENERATING_OUTPUT
-        typedef void* (*Instancer)(AbstractManager&, const std::string&);
-        static void importStaticPlugin(std::string plugin, int _version, std::string interface, Instancer instancer, void(*initializer)(), void(*finalizer)());
-        #endif
 
         /** @brief Copying is not allowed */
         AbstractManager(const AbstractManager&) = delete;
@@ -333,7 +338,7 @@ class CORRADE_PLUGINMANAGER_EXPORT AbstractManager {
          *      slashes as directory separators. Use @ref Utility::Directory::fromNativeSeparators()
          *      to convert from platform-specific format.
          *
-         * @see @ref unload(), @ref loadState(), @ref Manager::instance(),
+         * @see @ref unload(), @ref loadState(), @ref Manager::instantiate(),
          *      @ref Manager::loadAndInstantiate()
          * @partialsupport On platforms without
          *      @ref CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT "dynamic plugin support"
@@ -359,6 +364,16 @@ class CORRADE_PLUGINMANAGER_EXPORT AbstractManager {
          */
         LoadState unload(const std::string& plugin);
 
+        /**
+         * @brief Register an external manager for resolving inter-manager dependencies
+         * @m_since{2020,06}
+         *
+         * To be used for loading dependencies from different plugin
+         * interfaces. Once registered, the @p manager is expected to stay in
+         * scope for the whole lifetime of this instance.
+         */
+        void registerExternalManager(AbstractManager& manager);
+
     protected:
         /**
          * @brief Destructor
@@ -372,25 +387,23 @@ class CORRADE_PLUGINMANAGER_EXPORT AbstractManager {
     #ifdef DOXYGEN_GENERATING_OUTPUT
     private:
     #else
+    public:
+    #endif
+        struct CORRADE_PLUGINMANAGER_LOCAL Plugin;
+        typedef void* (*Instancer)(AbstractManager&, const std::string&);
+        static void importStaticPlugin(int version, Implementation::StaticPlugin& plugin);
+        static void ejectStaticPlugin(int version, Implementation::StaticPlugin& plugin);
+
+    #ifdef DOXYGEN_GENERATING_OUTPUT
+    private:
+    #else
     protected:
     #endif
-        struct CORRADE_PLUGINMANAGER_LOCAL StaticPlugin;
-        struct CORRADE_PLUGINMANAGER_LOCAL Plugin;
-        struct CORRADE_PLUGINMANAGER_LOCAL GlobalPluginStorage;
-
         #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
-        explicit AbstractManager(std::string pluginInterface, const std::vector<std::string>& pluginSearchPaths, std::string pluginDirectory);
+        explicit AbstractManager(std::string pluginInterface, const std::vector<std::string>& pluginSearchPaths, std::string pluginSuffix, std::string pluginConfSuffix, std::string pluginDirectory);
         #else
-        explicit AbstractManager(std::string pluginInterface);
+        explicit AbstractManager(std::string pluginInterface, std::string pluginConfSuffix);
         #endif
-
-        /* Initialize global plugin map. On first run it creates the instance
-           and fills it with entries from staticPlugins(). The reference is
-           then in constructor stored in _plugins variable to avoid at least
-           some issues with duplicated static variables on static builds. */
-        static CORRADE_PLUGINMANAGER_LOCAL GlobalPluginStorage& initializeGlobalPluginStorage();
-
-        GlobalPluginStorage& _plugins;
 
         Containers::Pointer<AbstractPlugin> instantiateInternal(const std::string& plugin);
         Containers::Pointer<AbstractPlugin> loadAndInstantiateInternal(const std::string& plugin);
@@ -398,89 +411,123 @@ class CORRADE_PLUGINMANAGER_EXPORT AbstractManager {
     private:
         struct State;
 
-        /* Temporary storage of all information needed to import static plugins.
-           They are imported to plugins() map on first call to plugins(),
-           because at that time it is safe to assume that all static resources
-           (plugin configuration files) are already registered. After that, the
-           storage is deleted and set to `nullptr` to indicate that static
-           plugins have been already processed.
-
-           The vector is accessible via function, not directly, because we don't
-           know initialization order of static members and thus the vector could
-           be uninitalized when accessed from CORRADE_PLUGIN_REGISTER(). */
-        CORRADE_PLUGINMANAGER_LOCAL static std::vector<StaticPlugin*>*& staticPlugins();
-
-        CORRADE_PLUGINMANAGER_LOCAL void registerDynamicPlugin(const std::string& name, Plugin* plugin);
+        CORRADE_PLUGINMANAGER_LOCAL void registerDynamicPlugin(const std::string& name, Containers::Pointer<Plugin>&& plugin);
 
         CORRADE_PLUGINMANAGER_LOCAL void registerInstance(const std::string& plugin, AbstractPlugin& instance, const PluginMetadata*& metadata);
-        CORRADE_PLUGINMANAGER_LOCAL void unregisterInstance(const std::string& plugin, AbstractPlugin& instance);
+        CORRADE_PLUGINMANAGER_LOCAL void reregisterInstance(const std::string& plugin, AbstractPlugin& oldInstance, AbstractPlugin* newInstance);
 
         #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
         CORRADE_PLUGINMANAGER_LOCAL LoadState loadInternal(Plugin& plugin);
         CORRADE_PLUGINMANAGER_LOCAL LoadState loadInternal(Plugin& plugin, const std::string& filename);
         CORRADE_PLUGINMANAGER_LOCAL LoadState unloadInternal(Plugin& plugin);
-        CORRADE_PLUGINMANAGER_LOCAL LoadState unloadRecursive(const std::string& plugin);
         CORRADE_PLUGINMANAGER_LOCAL LoadState unloadRecursiveInternal(Plugin& plugin);
         #endif
 
         Containers::Pointer<State> _state;
 };
 
+namespace Implementation {
+
+struct StaticPlugin {
+    /* Assuming both plugin and interface are static strings produced by the
+       CORRADE_PLUGIN_REGISTER() macro, so there's no need to make an allocated
+       copy of them, just a direct reference */
+    const char* plugin;
+    const char* interface;
+    AbstractManager::Instancer instancer;
+    void(*initializer)();
+    void(*finalizer)();
+    /* This field shouldn't be written to by anything else than
+       importStaticPlugin() / ejectStaticPlugin(). It's zero-initilized by
+       default and those use it to avoid inserting a single item to the linked
+       list more than once. */
+    StaticPlugin* next;
+};
+
+}
+
 /** @hideinitializer
-@brief Import static plugin
+@brief Import a static plugin
 @param name      Static plugin name (the same as defined with
     @ref CORRADE_PLUGIN_REGISTER())
 
-If static plugins are compiled into dynamic library or directly into the
-executable, they should be automatically loaded at startup thanks to
-@ref CORRADE_AUTOMATIC_INITIALIZER() and @ref CORRADE_AUTOMATIC_FINALIZER()
-macros.
-
-If static plugins are compiled into static library, they are not automatically
-loaded at startup, so you need to load them explicitly by calling
-@ref CORRADE_PLUGIN_IMPORT() at the beginning of `main()` function. You can
-also wrap these macro calls into another function (which will then be compiled
-into dynamic library or main executable) and use @ref CORRADE_AUTOMATIC_INITIALIZER()
-macro for automatic call:
+If you link static plugins to your executable, they can't automatically
+register themselves at startup to be known to
+@ref Corrade::PluginManager::Manager "PluginManager::Manager", and you need to
+load them explicitly by calling @ref CORRADE_PLUGIN_IMPORT() at the beginning
+of the @cpp main() @ce function. You can also wrap these macro calls in another
+function (which will then be compiled into a dynamic library or the main
+executable) and use the @ref CORRADE_AUTOMATIC_INITIALIZER() macro for an
+automatic call:
 
 @snippet PluginManager.cpp CORRADE_PLUGIN_IMPORT
 
 @attention This macro should be called outside of any namespace. If you are
     running into linker errors with `pluginImporter_*`, this could be the
-    problem. See @ref CORRADE_RESOURCE_INITIALIZE() documentation for more
+    reason. See @ref CORRADE_RESOURCE_INITIALIZE() documentation for more
     information.
- */
+
+Functions called by this macro don't do any dynamic allocation or other
+operations that could fail, so it's safe to call it even in restricted phases
+of application exection. It's also safe to call this macro more than once.
+
+@see @ref CORRADE_PLUGIN_EJECT()
+*/
+/* This "bundles" CORRADE_RESOURCE_INITIALIZE() in itself. Keep in sync. */
 #define CORRADE_PLUGIN_IMPORT(name)                                         \
     extern int pluginImporter_##name();                                     \
+    extern int resourceInitializer_##name();                                \
     pluginImporter_##name();                                                \
-    CORRADE_RESOURCE_INITIALIZE(name)
-
-/** @brief Plugin version */
-#define CORRADE_PLUGIN_VERSION 5
+    resourceInitializer_##name();
 
 /** @hideinitializer
-@brief Register static or dynamic lugin
-@param name          Name of static plugin (equivalent of dynamic plugin
+@brief Eject a previously imported static plugin
+@param name      Static plugin name (the same as defined with
+    @ref CORRADE_PLUGIN_REGISTER())
+@m_since{2019,10}
+
+Deregisters a plugin previously registered using @ref CORRADE_PLUGIN_IMPORT().
+
+@attention This macro should be called outside of any namespace. See the
+    @ref CORRADE_RESOURCE_INITIALIZE() macro for more information.
+
+Functions called by this macro don't do any dynamic allocation or other
+operations that could fail, so it's safe to call it even in restricted phases
+of application exection. It's also safe to call this macro more than once.
+*/
+/* This "bundles" CORRADE_RESOURCE_FINALIZE() in itself. Keep in sync. */
+#define CORRADE_PLUGIN_EJECT(name)                                          \
+    extern int pluginEjector_##name();                                      \
+    extern int resourceFinalizer_##name();                                  \
+    pluginEjector_##name();                                                 \
+    resourceFinalizer_##name();
+
+/** @brief Plugin version */
+#define CORRADE_PLUGIN_VERSION 6
+
+/** @hideinitializer
+@brief Register a static or dynamic plugin
+@param name          Name of the static plugin (equivalent of dynamic plugin
      filename)
 @param className     Plugin class name
 @param interface     Interface name (the same as is defined by the
     @ref Corrade::PluginManager::AbstractPlugin::pluginInterface() "pluginInterface()"
     member of given plugin class)
 
-If the plugin is built as **static** (using CMake command
-@ref corrade-cmake-add-static-plugin "corrade_add_static_plugin()"), registers
-it, so it will be loaded automatically when PluginManager instance with
-corresponding interface is created. When building as static plugin,
+If the plugin is built as **static** (using the CMake
+@ref corrade-cmake-add-static-plugin "corrade_add_static_plugin()" command),
+registers it, so it will be loaded automatically when PluginManager instance
+with corresponding interface is created. When building as static plugin,
 `CORRADE_STATIC_PLUGIN` preprocessor directive is defined.
 
-If the plugin is built as **dynamic** (using CMake command
-@ref corrade-cmake-add-plugin "corrade_add_plugin()"), registers it, so it can
-be dynamically loaded via @ref Corrade::PluginManager::Manager by supplying a
-name of the plugin. When building as dynamic plugin, `CORRADE_DYNAMIC_PLUGIN`
-preprocessor directive is defined.
+If the plugin is built as **dynamic** (using the CMake
+@ref corrade-cmake-add-plugin "corrade_add_plugin()" command), registers it, so
+it can be dynamically loaded via @ref Corrade::PluginManager::Manager by
+supplying a name of the plugin. When building as dynamic plugin,
+`CORRADE_DYNAMIC_PLUGIN` preprocessor directive is defined.
 
 If the plugin is built as dynamic or static **library or executable** (not as
-plugin, using e.g. CMake command @cmake add_library() @ce /
+a plugin, using e.g. CMake command @cmake add_library() @ce /
 @cmake add_executable() @ce), this macro won't do anything to prevent linker
 issues when linking more plugins together. No plugin-related preprocessor
 directive is defined.
@@ -489,15 +536,30 @@ See @ref plugin-management for more information about plugin compilation.
 
 @attention This macro should be called outside of any namespace. If you are
     running into linker errors with `pluginImporter_`, this could be the
-    problem.
+    reason.
 */
 #ifdef CORRADE_STATIC_PLUGIN
-#define CORRADE_PLUGIN_REGISTER(name, className, interface)                 \
-    inline void* pluginInstancer_##name(Corrade::PluginManager::AbstractManager& manager, const std::string& plugin) \
-        { return new className(manager, plugin); }                          \
+#define CORRADE_PLUGIN_REGISTER(name, className, interface_)                \
+    namespace {                                                             \
+        Corrade::PluginManager::Implementation::StaticPlugin staticPlugin_##name; \
+    }                                                                       \
     int pluginImporter_##name();                                            \
     int pluginImporter_##name() {                                           \
-        Corrade::PluginManager::AbstractManager::importStaticPlugin(#name, CORRADE_PLUGIN_VERSION, interface, pluginInstancer_##name, className::initialize, className::finalize); return 1; \
+        staticPlugin_##name.plugin = #name;                                 \
+        staticPlugin_##name.interface = interface_;                         \
+        staticPlugin_##name.instancer =                                     \
+            [](Corrade::PluginManager::AbstractManager& manager, const std::string& plugin) -> void* { \
+                return new className(manager, plugin);                      \
+            };                                                              \
+        staticPlugin_##name.initializer = className::initialize;            \
+        staticPlugin_##name.finalizer = className::finalize;                \
+        Corrade::PluginManager::AbstractManager::importStaticPlugin(CORRADE_PLUGIN_VERSION, staticPlugin_##name); \
+        return 1;                                                           \
+    }                                                                       \
+    int pluginEjector_##name();                                             \
+    int pluginEjector_##name() {                                            \
+        Corrade::PluginManager::AbstractManager::ejectStaticPlugin(CORRADE_PLUGIN_VERSION, staticPlugin_##name); \
+        return 1;                                                           \
     }
 #elif defined(CORRADE_DYNAMIC_PLUGIN)
 #define CORRADE_PLUGIN_REGISTER(name, className, interface)                 \

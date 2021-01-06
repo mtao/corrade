@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -37,24 +37,26 @@
 namespace Corrade { namespace Containers {
 
 /** @relatedalso EnumSet
-@brief Print enum set to debug output
+@brief Print an enum set to debug output
 @param debug    Debug output
 @param value    Value to be printed
 @param empty    What to print in case of an empty enum set
 @param enums    Recognized enum values
 
-Assuming underlying enum type has already implemented `operator<<` for
-@ref Utility::Debug, this function is able to print value of given enum set.
-Example definition:
+Assuming the underlying enum type has already implemented `operator<<` for
+@ref Utility::Debug, this function is able to print the values in given enum
+set. Example definition:
 
 @snippet Containers.cpp enumSetDebugOutput
 
-The usage would be then straightforward:
+The usage would then be straightforward:
 
 @snippet Containers.cpp enumSetDebugOutput-usage
 
 @attention This function assumes that the recognized values have unique bits
     set. The output is undefined if more than one value share the same bit.
+
+@see @ref bigEnumSetDebugOutput()
 */
 template<class T, typename std::underlying_type<T>::type fullValue> Utility::Debug& enumSetDebugOutput(Utility::Debug& debug, EnumSet<T, fullValue> value, const char* empty, std::initializer_list<T> enums) {
     /* Print the empty value in case there is nothing */
@@ -71,8 +73,8 @@ template<class T, typename std::underlying_type<T>::type fullValue> Utility::Deb
         value &= T(~typename std::underlying_type<T>::type(e));
     }
 
-    /* If there are leftover, pass them to the original debug operator and
-       expect it will print them as raw value */
+    /* If there are leftovers, pass them to the original debug operator and
+       expect it will print them as a raw value */
     if(value) {
         if(separate) debug << Utility::Debug::nospace << "|" << Utility::Debug::nospace;
         debug << T(typename std::underlying_type<T>::type(value));

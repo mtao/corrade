@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -102,6 +102,10 @@ struct PointerTest: TestSuite::Tester {
 
     void cast();
 
+    void emplaceConstructorExplicitInCopyInitialization();
+    void copyConstructPlainStruct();
+    void moveConstructPlainStruct();
+
     void debug();
 };
 
@@ -133,6 +137,11 @@ PointerTest::PointerTest() {
               &PointerTest::release}, &PointerTest::resetCounters, &PointerTest::resetCounters);
 
     addTests({&PointerTest::cast,
+
+              &PointerTest::emplaceConstructorExplicitInCopyInitialization,
+              &PointerTest::copyConstructPlainStruct,
+              &PointerTest::moveConstructPlainStruct,
+
               &PointerTest::debug});
 }
 
@@ -417,6 +426,10 @@ void PointerTest::access() {
 }
 
 void PointerTest::accessInvalid() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     struct Innocent {
         void foo() const {}
     };
@@ -503,6 +516,69 @@ void PointerTest::cast() {
     CORRADE_VERIFY(!a);
     CORRADE_VERIFY(b);
     CORRADE_COMPARE(b->a, 42);
+}
+
+void PointerTest::emplaceConstructorExplicitInCopyInitialization() {
+    /* See constructHelpers.h for details about this compiler-specific issue */
+    struct ExplicitDefault {
+        explicit ExplicitDefault() = default;
+    };
+
+    struct ContainingExplicitDefaultWithImplicitConstructor {
+        ExplicitDefault a;
+    };
+
+    /* This alone works */
+    ContainingExplicitDefaultWithImplicitConstructor a;
+    static_cast<void>(a);
+
+    /* So this should too */
+    Pointer<ContainingExplicitDefaultWithImplicitConstructor> b{InPlaceInit};
+    Pointer<ContainingExplicitDefaultWithImplicitConstructor> c;
+    c.emplace();
+    CORRADE_VERIFY(b);
+    CORRADE_VERIFY(c);
+}
+
+void PointerTest::copyConstructPlainStruct() {
+    struct ExtremelyTrivial {
+        int a;
+        char b;
+    };
+
+    /* This needs special handling on GCC 4.8, where T{b} (copy-construction)
+       attempts to convert ExtremelyTrivial to int to initialize the first
+       argument and fails miserably -- a{InPlaceInit, 3, 'a'} would in-place
+       initialize them, which is fine and doesn't need workarounds */
+    const ExtremelyTrivial value{3, 'a'};
+    Pointer<ExtremelyTrivial> a{InPlaceInit, value};
+    CORRADE_COMPARE(a->a, 3);
+
+    /* This copy-constructs new values -- emplace(4, 'b') would in-place
+       initialize them, which is fine and doesn't need workarounds */
+    const ExtremelyTrivial another{4, 'b'};
+    a.emplace(another);
+    CORRADE_COMPARE(a->a, 4);
+}
+
+void PointerTest::moveConstructPlainStruct() {
+    struct MoveOnlyStruct {
+        int a;
+        char c;
+        Pointer<int> b;
+    };
+
+    /* This needs special handling on GCC 4.8, where T{std::move(b)} attempts
+       to convert MoveOnlyStruct to int to initialize the first argument and
+       fails miserably -- a{InPlaceInit, 3, 'a', nullptr} would in-place
+       initialize them, which is fine and doesn't need workarounds */
+    Pointer<MoveOnlyStruct> a{InPlaceInit, MoveOnlyStruct{3, 'a', nullptr}};
+    CORRADE_COMPARE(a->a, 3);
+
+    /* This copy-constructs new values -- emplace(4, 'b', nullptr) would
+       in-place initialize them, which is fine and doesn't need workarounds */
+    a.emplace(MoveOnlyStruct{4, 'b', nullptr});
+    CORRADE_COMPARE(a->a, 4);
 }
 
 void PointerTest::debug() {

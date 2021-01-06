@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -31,16 +31,25 @@
 #endif
 
 #include "Corrade/Containers/Array.h"
+#include "Corrade/Containers/ArrayTuple.h"
+#include "Corrade/Containers/BigEnumSet.hpp"
+#include "Corrade/Containers/GrowableArray.h"
 #include "Corrade/Containers/EnumSet.hpp"
 #include "Corrade/Containers/LinkedList.h"
 #include "Corrade/Containers/Optional.h"
 #include "Corrade/Containers/Pointer.h"
+#include "Corrade/Containers/Reference.h"
 #include "Corrade/Containers/ScopeGuard.h"
 #include "Corrade/Containers/StaticArray.h"
 #include "Corrade/Containers/StridedArrayView.h"
+#include "Corrade/Containers/String.h"
+#include "Corrade/Containers/StringView.h"
 #include "Corrade/Utility/Debug.h"
+#include "Corrade/Utility/Directory.h"
 
 using namespace Corrade;
+
+#define DOXYGEN_IGNORE(...) __VA_ARGS__
 
 namespace Other {
 /* [EnumSet-usage] */
@@ -67,27 +76,7 @@ class Application {
         typedef Containers::EnumSet<Flag> Flags;
         CORRADE_ENUMSET_FRIEND_OPERATORS(Flags)
 };
-
-CORRADE_ENUMSET_OPERATORS(Application::Flags)
 /* [EnumSet-friend] */
-
-/* [EnumSet-templated] */
-namespace Implementation {
-    enum class ObjectFlag: unsigned int {
-        Dirty = 1 << 0,
-        Marked = 1 << 1
-    };
-
-    typedef Containers::EnumSet<ObjectFlag> ObjectFlags;
-    CORRADE_ENUMSET_OPERATORS(ObjectFlags)
-}
-
-template<class T> class Object {
-    public:
-        typedef Implementation::ObjectFlag Flag;
-        typedef Implementation::ObjectFlags Flags;
-};
-/* [EnumSet-templated] */
 
 enum class Feature: unsigned int;
 typedef Containers::EnumSet<Feature> Features;
@@ -115,6 +104,67 @@ Utility::Debug& operator<<(Utility::Debug& debug, Features value) {
         Feature::Popular});
 }
 /* [enumSetDebugOutput] */
+
+namespace Big1 {
+/* [BigEnumSet-usage1] */
+/* 64 values at most */
+enum class Feature: std::uint64_t {
+    DeferredRendering = 1 << 0,
+    AreaLights = 1 << 1,
+    GlobalIllumination = 1 << 2,
+    Shadows = 1 << 3,
+    Reflections = 1 << 4,
+    DOXYGEN_IGNORE()
+};
+
+typedef Containers::EnumSet<Feature>
+    Features;
+CORRADE_ENUMSET_OPERATORS(Features)
+/* [BigEnumSet-usage1] */
+}
+
+namespace Big2 {
+/* [BigEnumSet-usage2] */
+/* 256 values at most, for an 8-bit type */
+enum class Feature: std::uint8_t {
+    DeferredRendering = 0,
+    AreaLights = 1,
+    GlobalIllumination = 2,
+    Shadows = 3,
+    Reflections = 4,
+    DOXYGEN_IGNORE()
+};
+
+typedef Containers::BigEnumSet<Feature>
+    Features;
+CORRADE_ENUMSET_OPERATORS(Features)
+/* [BigEnumSet-usage2] */
+}
+
+namespace Big3 {
+enum class Feature: std::uint8_t;
+typedef Containers::BigEnumSet<Feature> Features;
+Utility::Debug& operator<<(Utility::Debug& debug, Features value);
+/* [bigEnumSetDebugOutput] */
+enum class Feature: std::uint8_t {
+    Fast = 0,
+    Cheap = 1,
+    Tested = 2,
+    Popular = 3
+};
+
+// already defined to print values as e.g. Feature::Fast and Features(0xab)
+// for unknown values
+Utility::Debug& operator<<(Utility::Debug&, Feature);
+
+typedef Containers::BigEnumSet<Feature> Features;
+CORRADE_ENUMSET_OPERATORS(Features)
+
+Utility::Debug& operator<<(Utility::Debug& debug, Features value) {
+    return Containers::bigEnumSetDebugOutput(debug, value, "Features{}");
+}
+/* [bigEnumSetDebugOutput] */
+}
 
 namespace LL1 {
 class Object;
@@ -248,6 +298,48 @@ Containers::Array<char, UnmapBuffer> array{data, bufferSize, UnmapBuffer{buffer}
 #endif
 
 {
+struct Face {
+    int vertexCount;
+    std::uint32_t vertices[4];
+};
+
+Containers::Array<Face> mesh;
+
+/* [Array-growable] */
+/* Optimistically reserve assuming the model consists of just triangles */
+Containers::Array<std::uint32_t> triangles;
+Containers::arrayReserve(triangles, mesh.size()*3);
+for(const Face& face: mesh) {
+    /* If it's a quad, convert to two triangles */
+    if(face.vertexCount == 4) Containers::arrayAppend(triangles,
+        {face.vertices[0], face.vertices[1], face.vertices[2],
+         face.vertices[0], face.vertices[2], face.vertices[3]});
+    /* Otherwise add as-is */
+    else Containers::arrayAppend(triangles,
+        {face.vertices[0], face.vertices[1], face.vertices[2]});
+}
+/* [Array-growable] */
+}
+
+{
+/* [Array-growable-sanitizer] */
+Containers::Array<int> a;
+arrayReserve(a, 100);
+arrayResize(a, 80);
+a[80] = 5; // Even though the memory is there, this causes ASan to complain
+/* [Array-growable-sanitizer] */
+}
+
+{
+/* [arrayAllocatorCast] */
+Containers::Array<char> data;
+Containers::Array<float> floats =
+    Containers::arrayAllocatorCast<float>(std::move(data));
+arrayAppend(floats, 37.0f);
+/* [arrayAllocatorCast] */
+}
+
+{
 /* [Array-arrayView] */
 Containers::Array<std::uint32_t> data;
 
@@ -374,6 +466,78 @@ static_cast<void>(size);
 }
 
 {
+struct VkAttachmentDescription {};
+struct VkSubpassDescription {};
+struct VkSubpassDependency {};
+struct VkRenderPassCreateInfo {
+    unsigned attachmentCount;
+    const VkAttachmentDescription* pAttachments;
+    unsigned subpassCount;
+    const VkSubpassDescription* pSubpasses;
+    unsigned dependencyCount;
+    const VkSubpassDependency* pDependencies;
+};
+std::size_t subpassCount{}, dependencyCount{};
+/* [ArrayTuple-usage] */
+Containers::ArrayView<VkAttachmentDescription> attachments;
+Containers::ArrayView<VkSubpassDescription> subpasses;
+Containers::ArrayView<VkSubpassDependency> dependencies;
+Containers::ArrayTuple data{
+    {3, attachments},
+    {subpassCount, subpasses},
+    {dependencyCount, dependencies}
+};
+
+// Fill the attachment, subpass and dependency info...
+
+VkRenderPassCreateInfo info{DOXYGEN_IGNORE()};
+info.attachmentCount = attachments.size();
+info.pAttachments = attachments;
+info.subpassCount = subpasses.size();
+info.pSubpasses = subpasses;
+info.dependencyCount = dependencies.size();
+info.pDependencies = dependencies;
+/* [ArrayTuple-usage] */
+static_cast<void>(info);
+}
+
+{
+/* [ArrayTuple-usage-nontrivial] */
+Containers::ArrayView<std::string> strings;
+Containers::ArrayView<Containers::Reference<std::string>> references;
+Containers::ArrayTuple data{
+    {Containers::ValueInit, 15, strings},
+    {Containers::NoInit, 15, references}
+};
+
+/* Initialize all references to point to the strings */
+for(std::size_t i = 0; i != strings.size(); ++i)
+    new(references + i) Containers::Reference<std::string>{strings[i]};
+/* [ArrayTuple-usage-nontrivial] */
+}
+
+#if defined(CORRADE_TARGET_UNIX) || (defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT))
+{
+/* [ArrayTuple-usage-mmap] */
+Containers::ArrayView<std::uint64_t> latencies;
+Containers::ArrayView<float> averages;
+Containers::ArrayTuple data{
+    {{Containers::NoInit, 200*1024*1024, latencies},
+     {Containers::NoInit, 200*1024*1024, averages}},
+    [](std::size_t size, std::size_t)
+        -> std::pair<char*, Utility::Directory::MapDeleter>
+    {
+        Containers::Array<char, Utility::Directory::MapDeleter> data =
+            Utility::Directory::mapWrite("storage.tmp", size);
+        Utility::Directory::MapDeleter deleter = data.deleter();
+        return {data, deleter};
+    }
+};
+/* [ArrayTuple-usage-mmap] */
+}
+#endif
+
+{
 /* [StaticArrayView-usage] */
 Containers::ArrayView<int> data;
 
@@ -447,6 +611,21 @@ Utility::Debug{} << (Feature::Popular|Feature(0xdead));
 // prints Features{}
 Utility::Debug{} << Features{};
 /* [enumSetDebugOutput-usage] */
+}
+
+{
+/* It's incorrect, of course, we're using the EnumSet instead of BigEnumSet
+   here */
+/* [bigEnumSetDebugOutput-usage] */
+// prints Feature::Fast|Feature::Cheap
+Utility::Debug{} << (Feature::Fast|Feature::Cheap);
+
+// prints Feature::Popular|Feature(0xca)|Feature(0xfe)
+Utility::Debug{} << (Feature::Popular|Feature(0xca)|Feature(0xfe));
+
+// prints Features{}
+Utility::Debug{} << Features{};
+/* [bigEnumSetDebugOutput-usage] */
 }
 
 {
@@ -533,6 +712,22 @@ auto b = Containers::optional<std::string>('a', 'b');
     Containers::ScopeGuard e{fd, close};
 } // fclose(f) gets called at the end of the scope
 /* [ScopeGuard-usage] */
+
+{
+Containers::StringView filename;
+/* [ScopeGuard-deferred] */
+Containers::ScopeGuard e{Containers::NoCreate};
+
+/* Read from stdin if desired, otherwise scope-guard an opened file */
+int fd;
+if(filename == "-") {
+    fd = STDIN_FILENO;
+} else {
+    fd = open(filename.data(), O_RDONLY);
+    e = Containers::ScopeGuard{fd, close};
+}
+/* [ScopeGuard-deferred] */
+}
 #endif
 
 {
@@ -676,18 +871,27 @@ for(float& x: horizontalPositions) x += 3.0f;
 /* [StridedArrayView-usage-conversion] */
 int data[] { 1, 42, 1337, -69 };
 
-Containers::StridedArrayView1D<int> view1{data, 4, sizeof(int)};
-Containers::StridedArrayView1D<int> view2 = data;
+Containers::StridedArrayView1D<int> a{data, 4, sizeof(int)};
+Containers::StridedArrayView1D<int> b = data;
 /* [StridedArrayView-usage-conversion] */
-static_cast<void>(view2);
+static_cast<void>(a);
+static_cast<void>(b);
+}
+
+{
+/* [StridedArrayView-usage-reshape] */
+int data3D[2*3*5];
+
+Containers::StridedArrayView3D<int> a{data3D, {2, 3, 5}, {3*5*4, 5*4, 4}};
+Containers::StridedArrayView3D<int> b{data3D, {2, 3, 5}};
+/* [StridedArrayView-usage-reshape] */
 }
 
 {
 std::uint32_t rgbaData[256*256*16]{};
 /* [StridedArrayView-usage-3d] */
 /* Sixteen 256x256 RGBA8 images */
-Containers::StridedArrayView3D<std::uint32_t> images{rgbaData,
-    {16, 256, 256}, {256*256*4, 256*4, 4}};
+Containers::StridedArrayView3D<std::uint32_t> images{rgbaData, {16, 256, 256}};
 
 /* Make the center 64x64 pixels of each image opaque red */
 for(auto&& image: images.slice({0, 96, 96}, {16, 160, 160}))
@@ -726,6 +930,31 @@ Containers::StridedArrayView2D<int> gradient =
     Containers::StridedArrayView1D<int>{data}.slice<2>().broadcasted<1>(8);
 /* [StridedArrayView-usage-broadcast] */
 static_cast<void>(gradient);
+}
+
+{
+struct Position {
+    float x, y;
+};
+/* [stridedArrayView-data-member] */
+Containers::ArrayView<Position> data;
+
+Containers::StridedArrayView1D<float> a{data, &data[0].x, 9, sizeof(Position)};
+auto b = Containers::stridedArrayView(data, &data[0].x, 9, sizeof(Position));
+/* [stridedArrayView-data-member] */
+static_cast<void>(b);
+}
+
+{
+/* [StridedArrayView-slice-member] */
+struct Position {
+    float x, y;
+};
+
+Containers::StridedArrayView1D<Position> data;
+Containers::StridedArrayView1D<float> y = data.slice(&Position::y);
+/* [StridedArrayView-slice-member] */
+static_cast<void>(y);
 }
 
 {
@@ -780,7 +1009,7 @@ struct Rgb {
 
 Containers::ArrayView<Rgb> pixels;
 
-Containers::StridedArrayView2D<Rgb> view{pixels, {128, 128}, {128*3, 3}};
+Containers::StridedArrayView2D<Rgb> view{pixels, {128, 128}};
 Containers::StridedArrayView3D<std::uint8_t> rgb =
     Containers::arrayCast<3, std::uint8_t>(view);
 /* [arrayCast-StridedArrayView-inflate] */
@@ -811,6 +1040,46 @@ auto b = Containers::pointer(ptr);
 auto a = Containers::Pointer<std::string>{Containers::InPlaceInit, 'a', 'b'};
 auto b = Containers::pointer<std::string>('a', 'b');
 /* [pointer-inplace] */
+}
+
+{
+/* [StringView-literal] */
+using namespace Containers::Literals;
+
+Containers::StringView a = "hello world!";
+Containers::StringView b = "hello world!"_s;
+/* [StringView-literal] */
+static_cast<void>(a);
+static_cast<void>(b);
+}
+
+{
+using namespace Containers::Literals;
+/* [StringView-literal-null] */
+Containers::StringView a = "hello\0world!";     // a.size() == 5
+Containers::StringView b = "hello\0world!"_s;   // a.size() == 12
+/* [StringView-literal-null] */
+static_cast<void>(a);
+static_cast<void>(b);
+}
+
+{
+/* [StringView-mutable] */
+char a[] = "hello world!";
+Containers::MutableStringView view = a;
+view[5] = '\0';
+/* [StringView-mutable] */
+static_cast<void>(a);
+}
+
+{
+using namespace Containers::Literals;
+/* [String-literal-null] */
+Containers::String a = "hello\0world!";         // a.size() == 5
+Containers::String b = "hello\0world!"_s;       // a.size() == 12
+/* [String-literal-null] */
+static_cast<void>(a);
+static_cast<void>(b);
 }
 
 }

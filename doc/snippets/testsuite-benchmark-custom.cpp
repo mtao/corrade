@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -68,12 +68,13 @@ VectorBenchmark::VectorBenchmark() {
 }
 
 void VectorBenchmark::insert() {
-    setTestCaseDescription(InsertData[testCaseInstanceId()].name);
+    auto&& data = InsertData[testCaseInstanceId()];
+    setTestCaseDescription(data.name);
 
-    std::vector<CopyCounter> data;
+    std::vector<CopyCounter> v;
     CORRADE_BENCHMARK(1)
-        for(std::size_t i = 0, end = InsertData[testCaseInstanceId()].count; i != end; ++i)
-            data.push_back({});
+        for(std::size_t i = 0; i != data.count; ++i)
+            v.push_back({});
 }
 
 void VectorBenchmark::copyCountBegin() {
@@ -84,7 +85,6 @@ void VectorBenchmark::copyCountBegin() {
 std::uint64_t VectorBenchmark::copyCountEnd() {
     return count;
 }
-
-CORRADE_TEST_MAIN(VectorBenchmark)
 /** [0] */
 
+CORRADE_TEST_MAIN(VectorBenchmark)

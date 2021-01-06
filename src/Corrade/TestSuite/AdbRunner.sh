@@ -45,17 +45,47 @@ fi
 if [ ! -z ${CORRADE_TEST_NO_XFAIL+x} ]; then
     test_env="$test_env CORRADE_TEST_NO_XFAIL=$CORRADE_TEST_NO_XFAIL"
 fi
-if [ ! -z ${CORRADE_BENCHMARK+x} ]; then
+if [ ! -z ${CORRADE_TEST_NO_CATCH+x} ]; then
+    test_env="$test_env CORRADE_TEST_NO_CATCH=$CORRADE_TEST_NO_CATCH"
+fi
+if [ ! -z ${CORRADE_TEST_BENCHMARK+x} ]; then
     test_env="$test_env CORRADE_BENCHMARK=$CORRADE_BENCHMARK"
 fi
-if [ ! -z ${CORRADE_BENCHMARK_DISCARD+x} ]; then
-    test_env="$test_env CORRADE_BENCHMARK_DISCARD=$CORRADE_BENCHMARK_DISCARD"
+if [ ! -z ${CORRADE_TEST_SAVE_DIAGNOSTIC+x} ]; then
+    test_env="$test_env CORRADE_TEST_SAVE_DIAGNOSTIC=$CORRADE_TEST_SAVE_DIAGNOSTIC"
 fi
-if [ ! -z ${CORRADE_BENCHMARK_YELLOW+x} ]; then
-    test_env="$test_env CORRADE_BENCHMARK_YELLOW=$CORRADE_BENCHMARK_YELLOW"
+if [ ! -z ${CORRADE_TEST_VERBOSE+x} ]; then
+    test_env="$test_env CORRADE_TEST_VERBOSE=$CORRADE_TEST_VERBOSE"
 fi
-if [ ! -z ${CORRADE_BENCHMARK_RED+x} ]; then
-    test_env="$test_env CORRADE_BENCHMARK_RED=$CORRADE_BENCHMARK_RED"
+if [ ! -z ${CORRADE_TEST_BENCHMARK_DISCARD+x} ]; then
+    test_env="$test_env CORRADE_TEST_BENCHMARK_DISCARD=$CORRADE_TEST_BENCHMARK_DISCARD"
+fi
+if [ ! -z ${CORRADE_TEST_BENCHMARK_YELLOW+x} ]; then
+    test_env="$test_env CORRADE_TEST_BENCHMARK_YELLOW=$CORRADE_TEST_BENCHMARK_YELLOW"
+fi
+if [ ! -z ${CORRADE_TEST_BENCHMARK_RED+x} ]; then
+    test_env="$test_env CORRADE_TEST_BENCHMARK_RED=$CORRADE_TEST_BENCHMARK_RED"
+fi
+
+# Magnum env variables. TODO: better ideas how to do this instead of making the
+# two projects interdependent like this?
+if [ ! -z ${MAGNUM_DISABLE_WORKAROUNDS+x} ]; then
+    test_env="$test_env MAGNUM_DISABLE_WORKAROUNDS=$MAGNUM_DISABLE_WORKAROUNDS"
+fi
+if [ ! -z ${MAGNUM_DISABLE_LAYERS+x} ]; then
+    test_env="$test_env MAGNUM_DISABLE_LAYERS=$MAGNUM_DISABLE_LAYERS"
+fi
+if [ ! -z ${MAGNUM_DISABLE_EXTENSIONS+x} ]; then
+    test_env="$test_env MAGNUM_DISABLE_EXTENSIONS=$MAGNUM_DISABLE_EXTENSIONS"
+fi
+if [ ! -z ${MAGNUM_VULKAN_VERSION+x} ]; then
+    test_env="$test_env MAGNUM_VULKAN_VERSION=$MAGNUM_VULKAN_VERSION"
+fi
+if [ ! -z ${MAGNUM_GPU_VALIDATION+x} ]; then
+    test_env="$test_env MAGNUM_GPU_VALIDATION=$MAGNUM_GPU_VALIDATION"
+fi
+if [ ! -z ${MAGNUM_LOG+x} ]; then
+    test_env="$test_env MAGNUM_LOG=$MAGNUM_LOG"
 fi
 
 # Create a local temporary directory. Android doesn't have mktemp, so we have

@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -23,10 +23,16 @@
     DEALINGS IN THE SOFTWARE.
 */
 
+/* Including this first so we test it guesses everything properly without
+   accidental help from standard headers */
+#include "Corrade/configure.h"
+
 #include <sstream>
 
 #include "Corrade/TestSuite/Tester.h"
 #include "Corrade/Utility/DebugStl.h" /** @todo remove when <sstream> is gone */
+
+#include "configure.h"
 
 namespace Corrade { namespace Test { namespace {
 
@@ -35,13 +41,19 @@ struct TargetTest: TestSuite::Tester {
 
     void system();
     void architecture();
+    void endian();
+    void compiler();
     void stl();
+    void simd();
 };
 
 TargetTest::TargetTest() {
     addTests({&TargetTest::system,
               &TargetTest::architecture,
-              &TargetTest::stl});
+              &TargetTest::endian,
+              &TargetTest::compiler,
+              &TargetTest::stl,
+              &TargetTest::simd});
 }
 
 void TargetTest::system() {
@@ -121,6 +133,82 @@ void TargetTest::architecture() {
     CORRADE_COMPARE(unique, 1);
 }
 
+void TargetTest::endian() {
+    #ifdef CORRADE_TARGET_BIG_ENDIAN
+    Debug{} << "CORRADE_TARGET_BIG_ENDIAN";
+    #endif
+
+    union {
+        char bytes[4];
+        int number;
+    } caster;
+    caster.number = 0x03020100;
+    #ifdef CORRADE_TARGET_BIG_ENDIAN
+    CORRADE_COMPARE(caster.bytes[0], 3);
+    #else
+    CORRADE_COMPARE(caster.bytes[0], 0);
+    #endif
+}
+
+void TargetTest::compiler() {
+    std::ostringstream out;
+
+    #ifdef CORRADE_TARGET_GCC
+    Debug{&out} << "CORRADE_TARGET_GCC";
+    #endif
+
+    #ifdef CORRADE_TARGET_CLANG
+    Debug{&out} << "CORRADE_TARGET_CLANG";
+    #endif
+
+    #ifdef CORRADE_TARGET_APPLE_CLANG
+    Debug{&out} << "CORRADE_TARGET_APPLE_CLANG";
+    #endif
+
+    #ifdef CORRADE_TARGET_CLANG_CL
+    Debug{&out} << "CORRADE_TARGET_CLANG_CL";
+    #endif
+
+    #ifdef CORRADE_TARGET_MSVC
+    Debug{&out} << "CORRADE_TARGET_MSVC";
+    #endif
+
+    #ifdef CORRADE_TARGET_MINGW
+    Debug{&out} << "CORRADE_TARGET_MINGW";
+    #endif
+
+    Debug{Debug::Flag::NoNewlineAtTheEnd} << out.str();
+    CORRADE_VERIFY(!out.str().empty() || !"No suitable CORRADE_TARGET_* defined");
+
+    #if defined(CMAKE_CORRADE_TARGET_GCC) != defined(CORRADE_TARGET_GCC)
+    CORRADE_VERIFY(!"Inconsistency in CMake-defined CORRADE_TARGET_GCC");
+    #endif
+
+    #if defined(CMAKE_CORRADE_TARGET_CLANG) != defined(CORRADE_TARGET_CLANG)
+    CORRADE_VERIFY(!"Inconsistency in CMake-defined CORRADE_TARGET_CLANG");
+    #endif
+
+    #if defined(CMAKE_CORRADE_TARGET_APPLE_CLANG) != defined(CORRADE_TARGET_APPLE_CLANG)
+    CORRADE_VERIFY(!"Inconsistency in CMake-defined CORRADE_TARGET_APPLE_CLANG");
+    #endif
+
+    #if defined(CMAKE_CORRADE_TARGET_CLANG_CL) != defined(CORRADE_TARGET_CLANG_CL)
+    CORRADE_VERIFY(!"Inconsistency in CMake-defined CORRADE_TARGET_CLANG_CL");
+    #endif
+
+    #if defined(CMAKE_CORRADE_TARGET_MSVC) != defined(CORRADE_TARGET_MSVC)
+    CORRADE_VERIFY(!"Inconsistency in CMake-defined CORRADE_TARGET_MSVC");
+    #endif
+
+    #if defined(CMAKE_CORRADE_TARGET_MINGW) != defined(CORRADE_TARGET_MINGW)
+    CORRADE_VERIFY(!"Inconsistency in CMake-defined CORRADE_TARGET_MINGW");
+    #endif
+
+    #if defined(CORRADE_TARGET_CLANG) && defined(CORRADE_TARGET_MSVC) == defined(CORRADE_TARGET_GCC)
+    CORRADE_VERIFY(!"Clang should have either a MSVC or a GCC frontend, but not both");
+    #endif
+}
+
 void TargetTest::stl() {
     std::ostringstream out;
     int unique = 0;
@@ -143,6 +231,18 @@ void TargetTest::stl() {
     Debug{Debug::Flag::NoNewlineAtTheEnd} << out.str();
     CORRADE_VERIFY(!out.str().empty() || !"No suitable CORRADE_TARGET_* defined");
     CORRADE_COMPARE(unique, 1);
+}
+
+void TargetTest::simd() {
+    std::ostringstream out;
+
+    #ifdef CORRADE_TARGET_SSE2
+    Debug{&out} << "CORRADE_TARGET_SSE2";
+    #endif
+
+    Debug{Debug::Flag::NoNewlineAtTheEnd} << out.str();
+    if(out.str().empty()) Debug{} << "No suitable CORRADE_TARGET_* defined";
+    CORRADE_VERIFY(true);
 }
 
 }}}

@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -74,7 +74,7 @@ template<> struct ArrayViewConverter<const int, ConstIntView> {
 template<> struct ErasedArrayViewConverter<ConstIntView>: ArrayViewConverter<const int, ConstIntView> {};
 template<> struct ErasedArrayViewConverter<const ConstIntView>: ArrayViewConverter<const int, ConstIntView> {};
 
-/* To keep the ArrayView API in reasonable bounds, the cost-adding variants
+/* To keep the ArrayView API in reasonable bounds, the const-adding variants
    have to be implemented explicitly */
 template<> struct ArrayViewConverter<const int, IntView> {
     static ArrayView<const int> from(IntView other) {
@@ -102,17 +102,23 @@ struct ArrayViewTest: TestSuite::Tester {
     void constructNullptrConstVoid();
     void constructNullptrSize();
     void construct();
-    void constructFixedSize();
-    void constructFromStatic();
-    void constructDerived();
     void constructVoid();
     void constructConstVoid();
+    void constructVoidFrom();
+    void constructConstVoidFrom();
+    void constructConstVoidFromVoid();
+    void constructFixedSize();
+    void constructFixedSizeVoid();
+    void constructFixedSizeConstVoid();
+    void constructFromStatic();
+    void constructFromStaticVoid();
+    void constructFromStaticConstVoid();
+    void constructDerived();
+    void constructInitializerList();
 
     void convertBool();
     void convertPointer();
     void convertConst();
-    void convertVoid();
-    void convertConstVoid();
     void convertExternalView();
     void convertConstFromExternalView();
     void convertToConstExternalView();
@@ -154,17 +160,23 @@ ArrayViewTest::ArrayViewTest() {
               &ArrayViewTest::constructNullptrConstVoid,
               &ArrayViewTest::constructNullptrSize,
               &ArrayViewTest::construct,
-              &ArrayViewTest::constructFixedSize,
-              &ArrayViewTest::constructFromStatic,
-              &ArrayViewTest::constructDerived,
               &ArrayViewTest::constructVoid,
               &ArrayViewTest::constructConstVoid,
+              &ArrayViewTest::constructVoidFrom,
+              &ArrayViewTest::constructConstVoidFrom,
+              &ArrayViewTest::constructConstVoidFromVoid,
+              &ArrayViewTest::constructFixedSize,
+              &ArrayViewTest::constructFixedSizeVoid,
+              &ArrayViewTest::constructFixedSizeConstVoid,
+              &ArrayViewTest::constructFromStatic,
+              &ArrayViewTest::constructFromStaticVoid,
+              &ArrayViewTest::constructFromStaticConstVoid,
+              &ArrayViewTest::constructDerived,
+              &ArrayViewTest::constructInitializerList,
 
               &ArrayViewTest::convertBool,
               &ArrayViewTest::convertPointer,
               &ArrayViewTest::convertConst,
-              &ArrayViewTest::convertVoid,
-              &ArrayViewTest::convertConstVoid,
               &ArrayViewTest::convertExternalView,
               &ArrayViewTest::convertConstFromExternalView,
               &ArrayViewTest::convertToConstExternalView,
@@ -266,7 +278,7 @@ void ArrayViewTest::constructNullptrConstVoid() {
 
 void ArrayViewTest::constructNullptrSize() {
     /* This should be allowed for e.g. just allocating memory in
-       Magnum::Buffer::setData() without passing any actual data */
+       Magnum::GL::Buffer::setData() without passing any actual data */
     ArrayView a{nullptr, 5};
     CORRADE_VERIFY(a == nullptr);
     CORRADE_VERIFY(!a.empty());
@@ -317,6 +329,79 @@ void ArrayViewTest::construct() {
     }
 }
 
+void ArrayViewTest::constructVoid() {
+    void* a = reinterpret_cast<void*>(0xdeadbeef);
+    VoidArrayView b(a, 25);
+    CORRADE_VERIFY(b == a);
+    CORRADE_VERIFY(!b.empty());
+    CORRADE_COMPARE(b.size(), 25);
+
+    int* c = reinterpret_cast<int*>(0xdeadbeef);
+    VoidArrayView d(c, 25);
+    CORRADE_VERIFY(d == c);
+    CORRADE_VERIFY(!d.empty());
+    CORRADE_COMPARE(d.size(), 100);
+
+    /** @todo constexpr but not const? c++14? */
+}
+
+void ArrayViewTest::constructConstVoid() {
+    void* a = reinterpret_cast<void*>(0xdeadbeef);
+    ConstVoidArrayView b(a, 25);
+    CORRADE_VERIFY(b == a);
+    CORRADE_VERIFY(!b.empty());
+    CORRADE_COMPARE(b.size(), 25);
+
+    int* c = reinterpret_cast<int*>(0xdeadbeef);
+    ConstVoidArrayView d(c, 25);
+    CORRADE_VERIFY(d == c);
+    CORRADE_VERIFY(!d.empty());
+    CORRADE_COMPARE(d.size(), 100);
+
+    constexpr ConstVoidArrayView cd{Array30, 25};
+    CORRADE_VERIFY(cd == Array30);
+    CORRADE_VERIFY(!cd.empty());
+    CORRADE_COMPARE(cd.size(), 100);
+}
+
+void ArrayViewTest::constructVoidFrom() {
+    int a[13];
+    const ArrayView b = a;
+    VoidArrayView c = b;
+    CORRADE_VERIFY(c == b);
+    CORRADE_COMPARE(c.size(), 13*sizeof(int));
+
+    /** @todo constexpr but not const? c++14? */
+}
+
+void ArrayViewTest::constructConstVoidFrom() {
+    int a[13];
+    const ArrayView b = a;
+    const ConstArrayView cb = a;
+    ConstVoidArrayView c = b;
+    ConstVoidArrayView cc = cb;
+    CORRADE_VERIFY(c == b);
+    CORRADE_VERIFY(cc == b);
+    CORRADE_COMPARE(c.size(), 13*sizeof(int));
+    CORRADE_COMPARE(cc.size(), 13*sizeof(int));
+
+    constexpr ConstArrayView ccb = Array30;
+    constexpr ConstVoidArrayView ccc = ccb;
+    CORRADE_VERIFY(ccc == Array30);
+    CORRADE_COMPARE(ccc.size(), 30*sizeof(int));
+}
+
+void ArrayViewTest::constructConstVoidFromVoid() {
+    int a[13];
+    const ArrayView b = a;
+    VoidArrayView c = b;
+    ConstVoidArrayView cc = c;
+    CORRADE_VERIFY(c == b);
+    CORRADE_VERIFY(cc == b);
+    CORRADE_COMPARE(c.size(), 13*sizeof(int));
+    CORRADE_COMPARE(cc.size(), 13*sizeof(int));
+}
+
 /* Needs to be here in order to use it in constexpr */
 constexpr int Array13[13]{};
 
@@ -349,6 +434,29 @@ void ArrayViewTest::constructFixedSize() {
     CORRADE_VERIFY(!(std::is_convertible<int*, ArrayView>::value));
 }
 
+void ArrayViewTest::constructFixedSizeVoid() {
+    int a[13];
+    VoidArrayView b = a;
+    CORRADE_VERIFY(b == a);
+    CORRADE_VERIFY(!b.empty());
+    CORRADE_COMPARE(b.size(), 13*sizeof(int));
+
+    /** @todo constexpr but not const? c++14? */
+}
+
+void ArrayViewTest::constructFixedSizeConstVoid() {
+    const int a[13]{};
+    ConstVoidArrayView b = a;
+    CORRADE_VERIFY(b == a);
+    CORRADE_VERIFY(!b.empty());
+    CORRADE_COMPARE(b.size(), 13*sizeof(int));
+
+    constexpr ConstVoidArrayView cb = Array30;
+    CORRADE_VERIFY(cb == Array30);
+    CORRADE_VERIFY(!cb.empty());
+    CORRADE_COMPARE(cb.size(), 30*sizeof(int));
+}
+
 void ArrayViewTest::constructFromStatic() {
     int a[13];
     StaticArrayView<13, int> av = a;
@@ -375,6 +483,33 @@ void ArrayViewTest::constructFromStatic() {
         CORRADE_VERIFY(b == cav);
         CORRADE_COMPARE(b.size(), 13);
     }
+}
+
+void ArrayViewTest::constructFromStaticVoid() {
+    int a[13];
+    const StaticArrayView<13, int> b = a;
+    VoidArrayView c = b;
+    CORRADE_VERIFY(c == b);
+    CORRADE_COMPARE(c.size(), 13*sizeof(int));
+
+    /** @todo constexpr but not const? c++14? */
+}
+
+void ArrayViewTest::constructFromStaticConstVoid() {
+    int a[13];
+    const StaticArrayView<13, int> b = a;
+    const StaticArrayView<13, const int> cb = a;
+    ConstVoidArrayView c = b;
+    ConstVoidArrayView cc = cb;
+    CORRADE_VERIFY(c == b);
+    CORRADE_VERIFY(cc == b);
+    CORRADE_COMPARE(c.size(), 13*sizeof(int));
+    CORRADE_COMPARE(cc.size(), 13*sizeof(int));
+
+    constexpr StaticArrayView<13, const int> ccb = Array13;
+    constexpr ConstVoidArrayView ccc = ccb;
+    CORRADE_VERIFY(ccc == Array13);
+    CORRADE_COMPARE(ccc.size(), 13*sizeof(int));
 }
 
 /* Needs to be here in order to use it in constexpr */
@@ -424,39 +559,14 @@ void ArrayViewTest::constructDerived() {
     CORRADE_COMPARE(cav.size(), 5);
 }
 
-void ArrayViewTest::constructVoid() {
-    void* a = reinterpret_cast<void*>(0xdeadbeef);
-    VoidArrayView b(a, 25);
-    CORRADE_VERIFY(b == a);
-    CORRADE_VERIFY(!b.empty());
-    CORRADE_COMPARE(b.size(), 25);
+void ArrayViewTest::constructInitializerList() {
+    std::initializer_list<int> a = {3, 5, 7};
+    ConstArrayView b = arrayView(a);
+    CORRADE_COMPARE(b.size(), 3);
+    CORRADE_COMPARE(b.back(), 7);
 
-    int* c = reinterpret_cast<int*>(0xdeadbeef);
-    VoidArrayView d(c, 25);
-    CORRADE_VERIFY(d == c);
-    CORRADE_VERIFY(!d.empty());
-    CORRADE_COMPARE(d.size(), 100);
-
-    /** @todo constexpr but not const? c++14? */
-}
-
-void ArrayViewTest::constructConstVoid() {
-    void* a = reinterpret_cast<void*>(0xdeadbeef);
-    ConstVoidArrayView b(a, 25);
-    CORRADE_VERIFY(b == a);
-    CORRADE_VERIFY(!b.empty());
-    CORRADE_COMPARE(b.size(), 25);
-
-    int* c = reinterpret_cast<int*>(0xdeadbeef);
-    ConstVoidArrayView d(c, 25);
-    CORRADE_VERIFY(d == c);
-    CORRADE_VERIFY(!d.empty());
-    CORRADE_COMPARE(d.size(), 100);
-
-    constexpr ConstVoidArrayView cd{Array30, 25};
-    CORRADE_VERIFY(cd == Array30);
-    CORRADE_VERIFY(!cd.empty());
-    CORRADE_COMPARE(cd.size(), 100);
+    /* R-value init list should work too */
+    CORRADE_COMPARE(arrayView<int>({3, 5, 7}).front(), 3);
 }
 
 void ArrayViewTest::convertBool() {
@@ -486,9 +596,13 @@ void ArrayViewTest::convertBool() {
     constexpr bool boolCvc = !!cvc;
     CORRADE_VERIFY(!boolCvc);
 
-    CORRADE_VERIFY(!(std::is_convertible<ArrayView, int>::value));
-    CORRADE_VERIFY(!(std::is_convertible<VoidArrayView, int>::value));
-    CORRADE_VERIFY(!(std::is_convertible<ConstVoidArrayView, int>::value));
+    /* Explicit conversion to bool is allowed, but not to int */
+    CORRADE_VERIFY((std::is_constructible<bool, ArrayView>::value));
+    CORRADE_VERIFY((std::is_constructible<bool, VoidArrayView>::value));
+    CORRADE_VERIFY((std::is_constructible<bool, ConstVoidArrayView>::value));
+    CORRADE_VERIFY(!(std::is_constructible<int, ArrayView>::value));
+    CORRADE_VERIFY(!(std::is_constructible<int, VoidArrayView>::value));
+    CORRADE_VERIFY(!(std::is_constructible<int, ConstVoidArrayView>::value));
 }
 
 void ArrayViewTest::convertPointer() {
@@ -527,75 +641,6 @@ void ArrayViewTest::convertConst() {
     CORRADE_COMPARE(c.size(), 3);
 }
 
-void ArrayViewTest::convertVoid() {
-    int a[] = {3, 4, 7, 12, 0, -15};
-
-    /* void reference to compile-time array */
-    VoidArrayView b = a;
-    CORRADE_VERIFY(b == a);
-    CORRADE_VERIFY(b.data() == a);
-    CORRADE_COMPARE(b.size(), 6*sizeof(int));
-
-    /* void reference to runtime array */
-    VoidArrayView c = {a, 6};
-    CORRADE_VERIFY(c == a);
-    CORRADE_COMPARE(c.size(), 6*sizeof(int));
-
-    /* void reference to ArrayView */
-    ArrayView f = a;
-    const ArrayView cf = a;
-    VoidArrayView g = f;
-    VoidArrayView cg = cf;
-    CORRADE_VERIFY(g == f);
-    CORRADE_VERIFY(cg == cf);
-    CORRADE_COMPARE(g.size(), f.size()*sizeof(int));
-    CORRADE_COMPARE(cg.size(), cf.size()*sizeof(int));
-
-    /** @todo constexpr but not const? c++14? */
-}
-
-void ArrayViewTest::convertConstVoid() {
-    int a[] = {3, 4, 7, 12, 0, -15};
-
-    /* void reference to compile-time array */
-    ConstVoidArrayView b = a;
-    CORRADE_VERIFY(b == a);
-    CORRADE_VERIFY(b.data() == a);
-    CORRADE_COMPARE(b.size(), 6*sizeof(int));
-
-    /* void reference to runtime array */
-    ConstVoidArrayView c = {a, 6};
-    CORRADE_VERIFY(c == a);
-    CORRADE_COMPARE(c.size(), 6*sizeof(int));
-
-    /* void reference to ArrayView */
-    ArrayView f = a;
-    const ArrayView cf = a;
-    ConstVoidArrayView g = f;
-    ConstVoidArrayView cg = cf;
-    CORRADE_VERIFY(g == f);
-    CORRADE_VERIFY(cg == cf);
-    CORRADE_COMPARE(g.size(), f.size()*sizeof(int));
-    CORRADE_COMPARE(cg.size(), cf.size()*sizeof(int));
-
-    /* void reference to compile-time array */
-    constexpr ConstVoidArrayView cb = Array13;
-    CORRADE_VERIFY(cb == Array13);
-    CORRADE_VERIFY(cb.data() == Array13);
-    CORRADE_COMPARE(cb.size(), 13*sizeof(int));
-
-    /* void reference to runtime array */
-    constexpr ConstVoidArrayView cc = {Array13, 6};
-    CORRADE_VERIFY(cc == Array13);
-    CORRADE_COMPARE(cc.size(), 6*sizeof(int));
-
-    /* void reference to ArrayView */
-    constexpr ConstArrayView ccf = Array13;
-    constexpr ConstVoidArrayView ccg = ccf;
-    CORRADE_VERIFY(ccg == ccf);
-    CORRADE_COMPARE(ccg.size(), ccf.size()*sizeof(int));
-}
-
 void ArrayViewTest::convertExternalView() {
     const int data[]{1, 2, 3, 4, 5};
     ConstIntView a{data, 5};
@@ -621,7 +666,7 @@ void ArrayViewTest::convertExternalView() {
 
     /* Broken on Clang 3.8-svn on Apple. The same works with stock Clang 3.8
        (Travis ASan build). ¯\_(ツ)_/¯ */
-    #if defined(CORRADE_TARGET_APPLE) && __clang_major__*100 + __clang_minor__ > 703
+    #if !defined(CORRADE_TARGET_APPLE_CLANG) || __clang_major__*100 + __clang_minor__ > 703
     constexpr
     #endif
     ConstArrayView cb = ca;
@@ -630,7 +675,7 @@ void ArrayViewTest::convertExternalView() {
 
     /* Broken on Clang 3.8-svn on Apple. The same works with stock Clang 3.8
        (Travis ASan build). ¯\_(ツ)_/¯ */
-    #if defined(CORRADE_TARGET_APPLE) && __clang_major__*100 + __clang_minor__ > 703
+    #if !defined(CORRADE_TARGET_APPLE_CLANG) || __clang_major__*100 + __clang_minor__ > 703
     constexpr
     #endif
     ConstIntView cc = cb;
@@ -639,7 +684,7 @@ void ArrayViewTest::convertExternalView() {
 
     /* Broken on Clang 3.8-svn on Apple. The same works with stock Clang 3.8
        (Travis ASan build). ¯\_(ツ)_/¯ */
-    #if defined(CORRADE_TARGET_APPLE) && __clang_major__*100 + __clang_minor__ > 703
+    #if !defined(CORRADE_TARGET_APPLE_CLANG) || __clang_major__*100 + __clang_minor__ > 703
     constexpr
     #else
     const
@@ -830,6 +875,10 @@ void ArrayViewTest::accessConstVoid() {
 }
 
 void ArrayViewTest::accessInvalid() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::stringstream out;
     Error redirectError{&out};
 
@@ -855,6 +904,10 @@ void ArrayViewTest::rangeBasedFor() {
 }
 
 void ArrayViewTest::sliceInvalid() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     /* Do it this way to avoid (reasonable) warnings about out-of-bounds array
        access with `a - 1` */
     int data[6] = {0, 1, 2, 3, 4, 5};
@@ -865,15 +918,28 @@ void ArrayViewTest::sliceInvalid() {
     std::ostringstream out;
     Error redirectError{&out};
 
+    /* Testing both pointer and size versions */
     a.slice(a - 1, a);
     a.slice(a + 5, a + 6);
+    a.slice(5, 6);
     a.slice(a + 2, a + 1);
+    a.slice(2, 1);
+    /* Testing template size + pointer, template size + size and full template
+       version */
+    a.slice<1>(a - 1);
+    a.slice<5>(a + 1);
     a.slice<5>(1);
+    a.slice<1, 6>();
 
     CORRADE_COMPARE(out.str(),
         "Containers::ArrayView::slice(): slice [-1:0] out of range for 5 elements\n"
         "Containers::ArrayView::slice(): slice [5:6] out of range for 5 elements\n"
+        "Containers::ArrayView::slice(): slice [5:6] out of range for 5 elements\n"
         "Containers::ArrayView::slice(): slice [2:1] out of range for 5 elements\n"
+        "Containers::ArrayView::slice(): slice [2:1] out of range for 5 elements\n"
+        "Containers::ArrayView::slice(): slice [-1:0] out of range for 5 elements\n"
+        "Containers::ArrayView::slice(): slice [1:6] out of range for 5 elements\n"
+        "Containers::ArrayView::slice(): slice [1:6] out of range for 5 elements\n"
         "Containers::ArrayView::slice(): slice [1:6] out of range for 5 elements\n");
 }
 
@@ -930,11 +996,17 @@ void ArrayViewTest::slice() {
     CORRADE_COMPARE(b[1], 3);
     CORRADE_COMPARE(b[2], 4);
 
-    ArrayView c = a.prefix(3);
-    CORRADE_COMPARE(c.size(), 3);
-    CORRADE_COMPARE(c[0], 1);
-    CORRADE_COMPARE(c[1], 2);
-    CORRADE_COMPARE(c[2], 3);
+    ArrayView c1 = a.prefix(3);
+    CORRADE_COMPARE(c1.size(), 3);
+    CORRADE_COMPARE(c1[0], 1);
+    CORRADE_COMPARE(c1[1], 2);
+    CORRADE_COMPARE(c1[2], 3);
+
+    ArrayView c2 = a.except(2);
+    CORRADE_COMPARE(c2.size(), 3);
+    CORRADE_COMPARE(c2[0], 1);
+    CORRADE_COMPARE(c2[1], 2);
+    CORRADE_COMPARE(c2[2], 3);
 
     ArrayView d = a.suffix(2);
     CORRADE_COMPARE(d.size(), 3);
@@ -949,11 +1021,17 @@ void ArrayViewTest::slice() {
     CORRADE_COMPARE(cb[1], 3);
     CORRADE_COMPARE(cb[2], 4);
 
-    constexpr ConstArrayView cc = ca.prefix(3);
-    CORRADE_COMPARE(cc.size(), 3);
-    CORRADE_COMPARE(cc[0], 1);
-    CORRADE_COMPARE(cc[1], 2);
-    CORRADE_COMPARE(cc[2], 3);
+    constexpr ConstArrayView cc1 = ca.prefix(3);
+    CORRADE_COMPARE(cc1.size(), 3);
+    CORRADE_COMPARE(cc1[0], 1);
+    CORRADE_COMPARE(cc1[1], 2);
+    CORRADE_COMPARE(cc1[2], 3);
+
+    constexpr ConstArrayView cc2 = ca.except(2);
+    CORRADE_COMPARE(cc2.size(), 3);
+    CORRADE_COMPARE(cc2[0], 1);
+    CORRADE_COMPARE(cc2[1], 2);
+    CORRADE_COMPARE(cc2[2], 3);
 
     constexpr ConstArrayView cd = ca.suffix(2);
     CORRADE_COMPARE(cd.size(), 3);
@@ -1019,10 +1097,15 @@ void ArrayViewTest::sliceToStatic() {
     int data[5] = {1, 2, 3, 4, 5};
     ArrayView a = data;
 
-    StaticArrayView<3, int> b = a.slice<3>(1);
-    CORRADE_COMPARE(b[0], 2);
-    CORRADE_COMPARE(b[1], 3);
-    CORRADE_COMPARE(b[2], 4);
+    StaticArrayView<3, int> b1 = a.slice<3>(1);
+    CORRADE_COMPARE(b1[0], 2);
+    CORRADE_COMPARE(b1[1], 3);
+    CORRADE_COMPARE(b1[2], 4);
+
+    StaticArrayView<3, int> b2 = a.slice<1, 4>();
+    CORRADE_COMPARE(b2[0], 2);
+    CORRADE_COMPARE(b2[1], 3);
+    CORRADE_COMPARE(b2[2], 4);
 
     StaticArrayView<3, int> c = a.prefix<3>();
     CORRADE_COMPARE(c[0], 1);
@@ -1033,10 +1116,15 @@ void ArrayViewTest::sliceToStatic() {
        pointer arithmetic on _data inside the assert. */
     #ifndef CORRADE_MSVC2015_COMPATIBILITY
     constexpr ConstArrayView ca = Array5;
-    constexpr StaticArrayView<3, const int> cb = ca.slice<3>(1);
-    CORRADE_COMPARE(cb[0], 2);
-    CORRADE_COMPARE(cb[1], 3);
-    CORRADE_COMPARE(cb[2], 4);
+    constexpr StaticArrayView<3, const int> cb1 = ca.slice<3>(1);
+    CORRADE_COMPARE(cb1[0], 2);
+    CORRADE_COMPARE(cb1[1], 3);
+    CORRADE_COMPARE(cb1[2], 4);
+
+    constexpr StaticArrayView<3, const int> cb2 = ca.slice<1, 4>();
+    CORRADE_COMPARE(cb2[0], 2);
+    CORRADE_COMPARE(cb2[1], 3);
+    CORRADE_COMPARE(cb2[2], 4);
 
     constexpr StaticArrayView<3, const int> cc = ca.prefix<3>();
     CORRADE_COMPARE(cc[0], 1);
@@ -1068,30 +1156,65 @@ void ArrayViewTest::sliceToStaticPointer() {
 void ArrayViewTest::cast() {
     std::uint32_t data[6]{};
     Containers::ArrayView<std::uint32_t> a = data;
+    Containers::ArrayView<void> av = data;
+    Containers::ArrayView<const void> cav = data;
     auto b = Containers::arrayCast<std::uint64_t>(a);
+    auto bv = Containers::arrayCast<std::uint64_t>(av);
+    auto cbv = Containers::arrayCast<const std::uint64_t>(cav);
     auto c = Containers::arrayCast<std::uint16_t>(a);
+    auto cv = Containers::arrayCast<std::uint16_t>(av);
+    auto ccv = Containers::arrayCast<const std::uint16_t>(cav);
 
     CORRADE_VERIFY((std::is_same<decltype(b), Containers::ArrayView<std::uint64_t>>::value));
+    CORRADE_VERIFY((std::is_same<decltype(bv), Containers::ArrayView<std::uint64_t>>::value));
+    CORRADE_VERIFY((std::is_same<decltype(cbv), Containers::ArrayView<const std::uint64_t>>::value));
     CORRADE_VERIFY((std::is_same<decltype(c), Containers::ArrayView<std::uint16_t>>::value));
-    CORRADE_COMPARE(reinterpret_cast<void*>(b.begin()), reinterpret_cast<void*>(a.begin()));
-    CORRADE_COMPARE(reinterpret_cast<void*>(c.begin()), reinterpret_cast<void*>(a.begin()));
+    CORRADE_VERIFY((std::is_same<decltype(cv), Containers::ArrayView<std::uint16_t>>::value));
+    CORRADE_VERIFY((std::is_same<decltype(ccv), Containers::ArrayView<const std::uint16_t>>::value));
+    CORRADE_COMPARE(static_cast<void*>(b.begin()), static_cast<void*>(a.begin()));
+    CORRADE_COMPARE(static_cast<void*>(bv.begin()), static_cast<void*>(a.begin()));
+    CORRADE_COMPARE(static_cast<const void*>(cbv.begin()), static_cast<const void*>(a.begin()));
+    CORRADE_COMPARE(static_cast<void*>(c.begin()), static_cast<void*>(a.begin()));
+    CORRADE_COMPARE(static_cast<void*>(cv.begin()), static_cast<void*>(a.begin()));
+    CORRADE_COMPARE(static_cast<const void*>(ccv.begin()), static_cast<const void*>(a.begin()));
     CORRADE_COMPARE(a.size(), 6);
+    CORRADE_COMPARE(av.size(), 6*4);
+    CORRADE_COMPARE(cav.size(), 6*4);
     CORRADE_COMPARE(b.size(), 3);
+    CORRADE_COMPARE(bv.size(), 3);
+    CORRADE_COMPARE(cbv.size(), 3);
     CORRADE_COMPARE(c.size(), 12);
+    CORRADE_COMPARE(cv.size(), 12);
+    CORRADE_COMPARE(ccv.size(), 12);
 }
 
 void ArrayViewTest::castInvalid() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     char data[10]{};
     Containers::ArrayView<char> a = data;
+    Containers::ArrayView<void> av = data;
+    Containers::ArrayView<const void> cav = data;
 
     auto b = Containers::arrayCast<std::uint16_t>(a);
+    auto bv = Containers::arrayCast<std::uint16_t>(av);
+    auto cbv = Containers::arrayCast<const std::uint16_t>(cav);
     CORRADE_COMPARE(b.size(), 5);
+    CORRADE_COMPARE(bv.size(), 5);
+    CORRADE_COMPARE(cbv.size(), 5);
 
     {
         std::ostringstream out;
         Error redirectError{&out};
         Containers::arrayCast<std::uint32_t>(a);
-        CORRADE_COMPARE(out.str(), "Containers::arrayCast(): can't reinterpret 10 1-byte items into a 4-byte type\n");
+        Containers::arrayCast<std::uint32_t>(av);
+        Containers::arrayCast<const std::uint32_t>(cav);
+        CORRADE_COMPARE(out.str(),
+            "Containers::arrayCast(): can't reinterpret 10 1-byte items into a 4-byte type\n"
+            "Containers::arrayCast(): can't reinterpret 10 bytes into a 4-byte type\n"
+            "Containers::arrayCast(): can't reinterpret 10 bytes into a 4-byte type\n");
     }
 }
 

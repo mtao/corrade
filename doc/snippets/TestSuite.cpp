@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -35,10 +35,15 @@
 #include "Corrade/TestSuite/Tester.h"
 #include "Corrade/Utility/Directory.h"
 #include "Corrade/Utility/DebugStl.h"
+#include "Corrade/Utility/FormatStl.h"
 #include "Corrade/Utility/StlMath.h"
 
 using namespace Corrade;
 
+#if defined(CORRADE_NO_ASSERT) && defined(CORRADE_TARGET_GCC)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#endif
 /* [Comparator-pseudotypes] */
 class FileContents {};
 
@@ -46,14 +51,16 @@ namespace Corrade { namespace TestSuite { // the namespace is important
 
 template<> class Comparator<FileContents> {
     public:
-        bool operator()(const std::string& actual, const std::string& expected) {
+        ComparisonStatusFlags operator()(const std::string& actual, const std::string& expected) {
             _actualContents = Utility::Directory::readString(actual);
             _expectedContents = Utility::Directory::readString(expected);
-            return _actualContents == _expectedContents;
+            return _actualContents == _expectedContents ? ComparisonStatusFlags{} :
+                ComparisonStatusFlag::Failed;
         }
 
-        void printErrorMessage(Utility::Error& e, const char* actual, const char* expected) const {
-            e << "Files" << actual << "and" << expected << "are not the same, actual" << _actualContents << "but expected" << _expectedContents;
+        void printMessage(ComparisonStatusFlags flags, Utility::Debug& out, const char* actual, const char* expected) const {
+            CORRADE_INTERNAL_ASSERT(flags & ComparisonStatusFlag::Failed);
+            out << "Files" << actual << "and" << expected << "are not the same, actual" << _actualContents << "but expected" << _expectedContents;
         }
 
     private:
@@ -62,6 +69,9 @@ template<> class Comparator<FileContents> {
 
 }}
 /* [Comparator-pseudotypes] */
+#if defined(CORRADE_NO_ASSERT) && defined(CORRADE_TARGET_GCC)
+#pragma GCC diagnostic pop
+#endif
 
 struct Foo: TestSuite::Tester {
 Foo() {
@@ -144,6 +154,27 @@ CORRADE_COMPARE_WITH(a, 9.28f, TestSuite::Compare::around(0.1f));
 }
 
 {
+/* [Compare-around-just-one] */
+float a;
+CORRADE_COMPARE_WITH(a, 9.28f, TestSuite::Compare::around(0.1f));
+/* [Compare-around-just-one] */
+}
+
+{
+/* [Compare-Divisible] */
+int a;
+CORRADE_COMPARE_AS(a, 4, TestSuite::Compare::Divisible);
+/* [Compare-Divisible] */
+}
+
+{
+/* [Compare-NotDivisible] */
+int a;
+CORRADE_COMPARE_AS(a, 4, TestSuite::Compare::NotDivisible);
+/* [Compare-NotDivisible] */
+}
+
+{
 /* [CORRADE_VERIFY] */
 std::string s("hello");
 CORRADE_VERIFY(!s.empty());
@@ -221,8 +252,15 @@ if(!bigEndian) {
 
 {
 /* [Tester-setTestCaseName] */
-setTestCaseName(__func__);
+setTestCaseName(CORRADE_FUNCTION);
 /* [Tester-setTestCaseName] */
+}
+
+{
+const char* name{};
+/* [Tester-setTestCaseTemplateName] */
+setTestCaseName(Utility::formatString("{}<{}>", CORRADE_FUNCTION, name));
+/* [Tester-setTestCaseTemplateName] */
 }
 }
 
@@ -243,3 +281,6 @@ void myTestCase() {
 }
 /* [Tester-Debug] */
 };
+
+/* To prevent macOS ranlib complaining that there are no symbols */
+int main() {}

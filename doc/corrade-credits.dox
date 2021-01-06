@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -83,14 +83,25 @@ Big thanks to everyone involved!
 Is the below list missing your name or something's wrong?
 [Let us know!](https://magnum.graphics/contact/)
 
+-   **[\@abgita](https://github.com/abgita)** --- minor typo fixes
 -   **Alexander F Rødseth** ([\@xyproto](https://github.com/xyproto)) ---
     packages in the ArchLinux community repository
 -   **Alexey Yurchenko** ([\@alexesDev](https://github.com/alexesDev)) ---
     static analyis, bug reports
+-   **Allie** ([\@bowling-allie](https://github.com/bowling-allie)) ---
+    improvements to the Emscripten CMake toolchain
+-   **[\@Amphaal](https://github.com/Amphaal)** --- MinGW/Clang and
+    crosscompilation fixes
 -   **[\@biosek](https://github.com/biosek)** --- MinGW compilation fixes
+-   **Burak Canik** ([\@HaroldReyiz](https://github.com/HaroldReyiz)) --- MSVC
+    warning fixes
 -   **David Lin** ([\@davll](https://github.com/davll)) --- initial macOS port
 -   **Chris Chambers** ([\@chris-chambers](https://github.com/chris-chambers))
     --- interfacing @ref Utility::Debug with @ref std::ostream operators
+-   **Cong Xie** ([\@xiconxi](https://github.com/xiconxi)) --- buildsystem
+    fixes
+-   **[\@DJQuardaboff](https://github.com/DJQuardaboff)** --- Investigation
+    into undoing horrible crimes done by windows.h
 -   **Eliot Saba** ([\@staticfloat](https://github.com/staticfloat)) --- macOS
     buildsystem fixes
 -   **Erik Wijmans** ([\@erikwijmans](https://github.com/erikwijmans)) ---
@@ -99,22 +110,43 @@ Is the below list missing your name or something's wrong?
     package
 -   **Guillaume Jacquemin** ([\@williamjcm](https://github.com/williamjcm)) ---
     MSYS2 packages
+-   **[\@hsdk123](https://github.com/hsdk123)** --- Android toolchain
+    improvements
+-   **Ivan Sanz Carasa** ([\@isc30](https://github.com/isc30)) --- Emscripten
+    toolchain improvements
+-   **Jackson Campolattaro** ([\@JacksonCampolattaro](https://github.com/JacksonCampolattaro))
+    --- documentation improvements
+-   **Jakob Weiss** ([\@TheHugeManatee](https://github.com/TheHugeManatee)) ---
+    Stateful lambda support in the @ref Interconnect library
 -   **[\@jaynus](https://github.com/jaynus)** --- MSVC compilation fixes
+-   **Jonathan Hale** ([\@Squareys](https://github.com/Squareys)) ---
+    @ref Utility::Sha1 additions, various fixes, buildsystem and CI
+    improvements
+-   **Marco Melorio** ([\@Melix19](https://github.com/Melix19)) --- iOS
+    crosscompiling and other fixes
+-   **Max Schwarz** ([\@xqms](https://github.com/xqms)) --- thread-local
+    @ref Utility::Debug scoped output redirection and coloring, documentation
+    fixes
 -   **Michael "Croydon" Keck** ([\@Croydon](https://github.com/Croydon)) ---
     Conan package
 -   **Michael Dietschi** ([\@mdietsch](https://github.com/mdietsch)) ---
     support for colored output in Win32 console
+-   **Michael Tao** ([\@mtao](https://github.com/mtao)) --- Gentoo build fixes
 -   **Nathan Ollerenshaw** ([\@matjam](https://github.com/matjam)) --- Ubuntu
     packages in a PPA repository
 -   **Nicholas "LB" Branden** ([\@LB--](https://github.com/LB--)) --- bugfixes,
     design suggestions
 -   **Olga Turanksaya** ([\@olga-python](https://github.com/olga-python)) ---
     gentoo ebuild
+-   **Pablo Escobar** ([\@pezcode](https://github.com/pezcode)) --- Emscripten
+    version compatibility fixes
 -   **Pascal Thomet** ([\@pthom](https://github.com/pthom)) --- Hunter package
 -   **[\@pkubaj](https://github.com/pkubaj)**  --- fixes for big-endian
     platforms
 -   **[\@sigman78](https://github.com/sigman78)** --- initial MSVC 2017 port,
     Vcpkg packages
+-   **Tracy Ma** ([\@linuxaged](https://github.com/linuxaged)) --- UWP build
+    fixes
 -   **[\@xantares](https://github.com/xantares)** --- Windows port improvements
 */
 

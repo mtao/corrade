@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -32,7 +32,6 @@
 #include <string>
 
 #include "Corrade/Utility/Debug.h"
-#include "Corrade/Utility/DebugStl.h"
 
 namespace Corrade { namespace Utility {
 
@@ -118,7 +117,7 @@ template<std::size_t digestSize> class AbstractHash {
 
 /** @debugoperator{HashDigest} */
 template<std::size_t size> inline Debug& operator<<(Debug& debug, const HashDigest<size>& value) {
-    return debug << value.hexString();
+    return debug << value.hexString().data();
 }
 
 template<std::size_t size> HashDigest<size> HashDigest<size>::fromHexString(std::string digest) {

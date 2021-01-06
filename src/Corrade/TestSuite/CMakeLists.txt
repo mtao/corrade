@@ -2,7 +2,7 @@
 #   This file is part of Corrade.
 #
 #   Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-#               2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+#               2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a
 #   copy of this software and associated documentation files (the "Software"),
@@ -24,6 +24,7 @@
 #
 
 set(CorradeTestSuite_SRCS
+    Comparator.cpp
     Tester.cpp
 
     Compare/File.cpp
@@ -55,6 +56,16 @@ elseif(BUILD_STATIC_PIC)
     set_target_properties(CorradeTestSuite PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 target_link_libraries(CorradeTestSuite CorradeUtility)
+if(CORRADE_TARGET_EMSCRIPTEN)
+    # Since (probably) 1.38.36, the compiler needs to have exceptions enabled
+    # as well (not just the linker), and directly for the TestSuite library.
+    # Best would be to use the target_link_options() / target_compile_options()
+    # together with SHELL, but we don't want to force people to use CMake 3.13
+    # so doing it the old way --- and instead of the options being transitively
+    # passed to the target, for the test target it's done explicitly inside
+    # UseCorrade.cmake. Wasn't needed with 1.38.32.
+    set_property(TARGET CorradeTestSuite APPEND_STRING PROPERTY COMPILE_FLAGS " -s DISABLE_EXCEPTION_CATCHING=0")
+endif()
 
 install(TARGETS CorradeTestSuite
         RUNTIME DESTINATION ${CORRADE_BINARY_INSTALL_DIR}

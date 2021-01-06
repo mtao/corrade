@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -43,10 +43,10 @@ PiTest::PiTest() {
 }
 
 template<class T> void PiTest::calculate() {
-    setTestCaseName(std::is_same<T, float>::value ? "calculate<float>" : "calculate<double>");
+    setTestCaseTemplateName(std::is_same<T, float>::value ? "float" : "double");
 
     CORRADE_COMPARE(calculatePi<T>(), T(3.141592653589793));
 }
+/** [0] */
 
 CORRADE_TEST_MAIN(PiTest)
-/** [0] */

@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -30,6 +30,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#include "Corrade/Containers/EnumSet.hpp"
 #include "Corrade/Utility/DebugStl.h"
 
 #if defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT)
@@ -38,7 +39,17 @@
 
 namespace Corrade { namespace Utility {
 
-FileWatcher::FileWatcher(const std::string& filename):
+#ifndef DOXYGEN_GENERATING_OUTPUT
+enum class FileWatcher::InternalFlag: std::uint8_t {
+    /* Keep in sync with Flag */
+    IgnoreErrors = std::uint8_t(FileWatcher::Flag::IgnoreErrors),
+    IgnoreChangeIfEmpty = std::uint8_t(FileWatcher::Flag::IgnoreChangeIfEmpty),
+
+    Valid = 1 << 7
+};
+#endif
+
+FileWatcher::FileWatcher(const std::string& filename, Flags flags):
     #if defined(CORRADE_TARGET_UNIX) || defined(CORRADE_TARGET_EMSCRIPTEN)
     _filename{filename},
     #elif defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT)
@@ -46,15 +57,30 @@ FileWatcher::FileWatcher(const std::string& filename):
     #else
     #error
     #endif
+    _flags{InternalFlag(std::uint8_t(flags))|InternalFlag::Valid},
     _time{~std::uint64_t{}}
 {
     /* Initialize the time value for the first time */
     hasChanged();
 }
 
-FileWatcher::FileWatcher(FileWatcher&&) noexcept = default;
+FileWatcher::FileWatcher(FileWatcher&&)
+    #ifdef __GNUC__
+    noexcept(std::is_nothrow_move_constructible<std::string>::value)
+    #else
+    noexcept
+    #endif
+    = default;
 
 FileWatcher::~FileWatcher() = default;
+
+FileWatcher::Flags FileWatcher::flags() const {
+    return Flag(std::uint8_t(_flags & ~InternalFlag::Valid));
+}
+
+bool FileWatcher::isValid() const {
+    return _flags >= InternalFlag::Valid;
+}
 
 FileWatcher& FileWatcher::operator=(FileWatcher&&)
     /* See the header for details */
@@ -66,7 +92,7 @@ FileWatcher& FileWatcher::operator=(FileWatcher&&)
     = default;
 
 bool FileWatcher::hasChanged() {
-    if(!_valid) return false;
+    if(!(_flags & InternalFlag::Valid)) return false;
 
     #if defined(CORRADE_TARGET_UNIX) || defined(CORRADE_TARGET_EMSCRIPTEN)
     /* GCC 4.8 complains about missing initializers if {} is used. The struct
@@ -80,7 +106,8 @@ bool FileWatcher::hasChanged() {
     #error
     #endif
     {
-        Error{} << "Utility::FileWatcher: can't stat"
+        Error err;
+        err << "Utility::FileWatcher: can't stat"
             #if defined(CORRADE_TARGET_UNIX) || defined(CORRADE_TARGET_EMSCRIPTEN)
             << _filename
             #elif defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT)
@@ -88,8 +115,16 @@ bool FileWatcher::hasChanged() {
             #else
             #error
             #endif
-            << Debug::nospace << ":" << std::strerror(errno) << Debug::nospace << ", aborting watch";
-        _valid = false;
+            << Debug::nospace << ":" << std::strerror(errno) << Debug::nospace;
+
+        /* Ignore the error if we are told so (but still warn) */
+        if(_flags & InternalFlag::IgnoreErrors) {
+            err << ", ignoring";
+            return false;
+        }
+
+        err << ", aborting watch";
+        _flags &= ~InternalFlag::Valid;
         return false;
     }
 
@@ -117,13 +152,42 @@ bool FileWatcher::hasChanged() {
         return false;
     }
 
-    /* Modification time changed, update and report change */
-    if(_time != time) {
+    /* Modification time changed, update and report change -- unless the size
+       is zero and we're told to ignore those */
+    if(_time != time
+        #ifndef CORRADE_TARGET_IOS
+        /* iOS (or at least the simulator) reports all sizes to be always 0,
+           which means this flag would make FileWatcher absolutely useless. So
+           ignore it there. */
+        && (!(_flags & InternalFlag::IgnoreChangeIfEmpty) || result.st_size != 0)
+        #endif
+    ) {
         _time = time;
         return true;
     }
 
     return false;
 }
+
+#ifndef DOXYGEN_GENERATING_OUTPUT
+Debug& operator<<(Debug& debug, FileWatcher::Flag value) {
+    switch(value) {
+        /* LCOV_EXCL_START */
+        #define _c(value) case FileWatcher::Flag::value: return debug << "Utility::FileWatcher::Flag::" #value;
+        _c(IgnoreErrors)
+        _c(IgnoreChangeIfEmpty)
+        #undef _c
+        /* LCOV_EXCL_STOP */
+    }
+
+    return debug << "Utility::FileWatcher::Flag(" << Debug::nospace << reinterpret_cast<void*>(std::uint8_t(value)) << Debug::nospace << ")";
+}
+
+Debug& operator<<(Debug& debug, FileWatcher::Flags value) {
+    return Containers::enumSetDebugOutput(debug, value, "Utility::FileWatcher::Flags{}", {
+        FileWatcher::Flag::IgnoreErrors,
+        FileWatcher::Flag::IgnoreChangeIfEmpty});
+}
+#endif
 
 }}

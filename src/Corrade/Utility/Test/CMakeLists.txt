@@ -2,7 +2,7 @@
 #   This file is part of Corrade.
 #
 #   Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-#               2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+#               2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a
 #   copy of this software and associated documentation files (the "Software"),
@@ -33,6 +33,9 @@ endif()
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/configure.h.cmake
                ${CMAKE_CURRENT_BINARY_DIR}/configure.h)
+
+corrade_add_test(UtilityAlgorithmsTest AlgorithmsTest.cpp LIBRARIES CorradeUtilityTestLib)
+target_compile_definitions(UtilityAlgorithmsTest PRIVATE "CORRADE_GRACEFUL_ASSERT")
 
 corrade_add_test(UtilityArgumentsTest ArgumentsTest.cpp LIBRARIES CorradeUtilityTestLib)
 set_tests_properties(UtilityArgumentsTest
@@ -65,13 +68,13 @@ if(CORRADE_TARGET_EMSCRIPTEN OR CORRADE_TARGET_ANDROID)
         ${PROJECT_SOURCE_DIR}/src/dummy.cpp
         ARGUMENTS --fail-on-internal-assert true)
     set_tests_properties(UtilityAssertTestFailInternalAssert PROPERTIES
-        PASS_REGULAR_EXPRESSION "Assertion b && !_failInternalAssert failed in ")
+        PASS_REGULAR_EXPRESSION "Assertion b && !_failInternalAssert failed at ")
     corrade_add_test(UtilityAssertTestFailInternalC___Assert
         $<TARGET_OBJECTS:AssertTestObjects>
         ${PROJECT_SOURCE_DIR}/src/dummy.cpp
         ARGUMENTS --fail-on-internal-constexpr-assert true)
     set_tests_properties(UtilityAssertTestFailInternalC___Assert PROPERTIES
-        PASS_REGULAR_EXPRESSION "Assertion b failed in ")
+        PASS_REGULAR_EXPRESSION "Assertion b failed at ")
     corrade_add_test(UtilityAssertTestFailAssertOutput
         $<TARGET_OBJECTS:AssertTestObjects>
         ${PROJECT_SOURCE_DIR}/src/dummy.cpp
@@ -83,13 +86,25 @@ if(CORRADE_TARGET_EMSCRIPTEN OR CORRADE_TARGET_ANDROID)
         ${PROJECT_SOURCE_DIR}/src/dummy.cpp
         ARGUMENTS --fail-on-internal-assert-output true)
     set_tests_properties(UtilityAssertTestFailInternalA___Output PROPERTIES
-        PASS_REGULAR_EXPRESSION "Assertion foo\\(\\) && !_failInternalAssertOutput failed in ")
+        PASS_REGULAR_EXPRESSION "Assertion foo\\(\\) && !_failInternalAssertOutput failed at ")
+    corrade_add_test(UtilityAssertTestFailInter___Expression
+        $<TARGET_OBJECTS:AssertTestObjects>
+        ${PROJECT_SOURCE_DIR}/src/dummy.cpp
+        ARGUMENTS --fail-on-internal-assert-expression true)
+    set_tests_properties(UtilityAssertTestFailInter___Expression PROPERTIES
+        PASS_REGULAR_EXPRESSION "Assertion c \\+ \\(_failInternalAssertExpression \\? -3 : 3\\) failed at ")
     corrade_add_test(UtilityAssertTestFailAssertUnreachable
         $<TARGET_OBJECTS:AssertTestObjects>
         ${PROJECT_SOURCE_DIR}/src/dummy.cpp
         ARGUMENTS --fail-on-assert-unreachable true)
     set_tests_properties(UtilityAssertTestFailAssertUnreachable PROPERTIES
-        PASS_REGULAR_EXPRESSION "Reached unreachable code in ")
+        PASS_REGULAR_EXPRESSION "C should be 3")
+    corrade_add_test(UtilityAssertTestFailInte___Unreachable
+        $<TARGET_OBJECTS:AssertTestObjects>
+        ${PROJECT_SOURCE_DIR}/src/dummy.cpp
+        ARGUMENTS --fail-on-internal-assert-unreachable true)
+    set_tests_properties(UtilityAssertTestFailInte___Unreachable PROPERTIES
+        PASS_REGULAR_EXPRESSION "Reached unreachable code at ")
 endif()
 
 # The same as above, but using CORRADE_STANDARD_ASSERT
@@ -104,7 +119,7 @@ target_compile_definitions(UtilityAssertStandardDisabledTest PRIVATE
     "CORRADE_STANDARD_ASSERT" "NDEBUG")
 
 corrade_add_test(UtilityAssertGracefulTest AssertGracefulTest.cpp)
-corrade_add_test(UtilityEndianTest EndianTest.cpp)
+corrade_add_test(UtilityEndiannessTest EndiannessTest.cpp)
 corrade_add_test(UtilityMurmurHash2Test MurmurHash2Test.cpp)
 corrade_add_test(UtilityConfigurationTest ConfigurationTest.cpp
     LIBRARIES CorradeUtilityTestLib
@@ -136,7 +151,14 @@ corrade_add_test(UtilityConfigurationTest ConfigurationTest.cpp
         ConfigurationTestFiles/whitespaces-saved.conf)
 target_include_directories(UtilityConfigurationTest PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 corrade_add_test(UtilityConfigurationValueTest ConfigurationValueTest.cpp)
+
 corrade_add_test(UtilityDebugTest DebugTest.cpp)
+corrade_add_test(UtilityMacrosTest MacrosTest.cpp)
+if(NOT CORRADE_TARGET_EMSCRIPTEN)
+    find_package(Threads REQUIRED)
+    target_link_libraries(UtilityDebugTest PRIVATE Threads::Threads)
+    target_link_libraries(UtilityMacrosTest PRIVATE Threads::Threads)
+endif()
 
 # It should return with a non-zero exit code
 corrade_add_test(UtilityFatalTest FatalTest.cpp)
@@ -160,7 +182,7 @@ corrade_add_test(UtilityFormatTest FormatTest.cpp LIBRARIES CorradeUtilityTestLi
 target_include_directories(UtilityFormatTest PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 corrade_add_test(UtilityHashDigestTest HashDigestTest.cpp)
-corrade_add_test(UtilityMacrosTest MacrosTest.cpp)
+
 corrade_add_test(UtilitySha1Test Sha1Test.cpp)
 corrade_add_test(UtilityStlForwardArrayTest StlForwardArrayTest.cpp)
 corrade_add_test(UtilityStlForwardStringTest StlForwardStringTest.cpp)
@@ -195,13 +217,10 @@ corrade_add_test(UtilityResourceTest
     ${ResourceTestNothingData}
     LIBRARIES CorradeUtilityTestLib
     FILES
-        ResourceTestFiles/compiled-le.cpp
-        ResourceTestFiles/compiled-be.cpp
-        ResourceTestFiles/compiled-empty-le.cpp
-        ResourceTestFiles/compiled-empty-be.cpp
+        ResourceTestFiles/compiled.cpp
+        ResourceTestFiles/compiled-empty.cpp
         ResourceTestFiles/compiled-nothing.cpp
-        ResourceTestFiles/compiled-unicode-le.cpp
-        ResourceTestFiles/compiled-unicode-be.cpp
+        ResourceTestFiles/compiled-unicode.cpp
         ResourceTestFiles/consequence.bin
         ResourceTestFiles/consequence2.txt
         ResourceTestFiles/empty.bin
@@ -224,7 +243,11 @@ corrade_add_test(UtilityResourceTest
 target_include_directories(UtilityResourceTest PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 # Static lib resource test
-add_library(ResourceTestDataLib STATIC ${ResourceTestData})
+add_library(ResourceTestDataLib STATIC ${ResourceTestData}
+    ${ResourceTestNothingData})
+target_compile_definitions(ResourceTestDataLib PRIVATE
+    "CORRADE_AUTOMATIC_INITIALIZER=CORRADE_NOOP"
+    "CORRADE_AUTOMATIC_FINALIZER=CORRADE_NOOP")
 target_link_libraries(ResourceTestDataLib CorradeUtility)
 corrade_add_test(UtilityResourceStaticTest ResourceStaticTest.cpp
     LIBRARIES ResourceTestDataLib
@@ -235,7 +258,7 @@ target_include_directories(UtilityResourceStaticTest PRIVATE ${CMAKE_CURRENT_BIN
 
 set_target_properties(
     UtilityArgumentsTest
-    UtilityEndianTest
+    UtilityEndiannessTest
     UtilityMurmurHash2Test
     UtilityConfigurationTest
     UtilityConfigurationValueTest
@@ -261,6 +284,21 @@ set_target_properties(
     ResourceTestEmptyFileData-dependencies
     ResourceTestNothingData-dependencies
     PROPERTIES FOLDER "Corrade/Utility/Test")
+
+if(CORRADE_BUILD_STATIC AND NOT CORRADE_TARGET_EMSCRIPTEN AND NOT CORRADE_TARGET_IOS AND NOT CORRADE_TARGET_ANDROID AND NOT CORRADE_TARGET_WINDOWS_RT)
+    add_library(UtilityGlobalStateAcrossLibrariesLibrary SHARED
+        GlobalStateAcrossLibrariesLibrary.cpp
+        ${ResourceTestData})
+    target_link_libraries(UtilityGlobalStateAcrossLibrariesLibrary PRIVATE CorradeUtility)
+
+    corrade_add_test(UtilityGlobalStateAcrossLibrariesTest
+        GlobalStateAcrossLibrariesTest.cpp
+        LIBRARIES UtilityGlobalStateAcrossLibrariesLibrary)
+    set_target_properties(
+        UtilityGlobalStateAcrossLibrariesLibrary
+        UtilityGlobalStateAcrossLibrariesTest
+        PROPERTIES FOLDER "Corrade/Utility/Test")
+endif()
 
 # Unix-specific / non-RT-Windows-specific functionality. Also Emscripten.
 if(CORRADE_TARGET_UNIX OR (CORRADE_TARGET_WINDOWS AND NOT CORRADE_TARGET_WINDOWS_RT) OR CORRADE_TARGET_EMSCRIPTEN)

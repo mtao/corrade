@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -35,10 +35,15 @@
 #include "Corrade/Containers/Containers.h"
 #include "Corrade/Utility/visibility.h"
 
+#ifdef CORRADE_BUILD_DEPRECATED
+#include "Corrade/Utility/Macros.h"
+#endif
+
 namespace Corrade { namespace Utility {
 
 /**
 @brief Format a string
+@m_since{2019,10}
 
 Provides type-safe formatting of arbitrary types into a template string,
 similar in syntax to Python's [format()](https://docs.python.org/3.4/library/string.html#format-string-syntax).
@@ -76,10 +81,11 @@ In order to write a literal curly brace to the output, simply double it:
 | @cpp long long @ce, @cpp unsigned long long @ce | Written as an integer
 | @cpp float @ce <b></b>    | Written as a float with 6 significant digits by default
 | @cpp double @ce <b></b>   | Written as a float with 15 significant digits by default
-| @cpp long double @ce <b></b> | Written as a float with 18 significant digits by default
+| @cpp long double @ce <b></b> | Written as a float, by default with 18 significant digits on platforms \n with 80-bit @cpp long double @ce and 15 digits on platforms @ref CORRADE_LONG_DOUBLE_SAME_AS_DOUBLE "where it is 64-bit"
 | @cpp char* @ce <b></b> | Written as a sequence of characters until @cpp '\0' @ce (which is not written)
-| @ref std::string | Written as a sequence of @ref std::string::size() characters
-| @ref Containers::ArrayView "Containers::ArrayView<char>" | Written as a sequence of @ref Containers::ArrayView::size() characters
+| @ref Containers::StringView, \n @ref Containers::MutableStringView "MutableStringView", @ref Containers::String "String" | Written as a sequence of @ref Containers::StringView::size() characters
+| @ref Containers::ArrayView "Containers::ArrayView<const char>" @m_class{m-label m-danger} **deprecated** | Written as a sequence of @ref Containers::ArrayView::size() characters. \n Deprecated, use @ref Containers::StringView instead.
+| @ref std::string | Written as a sequence of @ref std::string::size() characters \n (@cpp #include @ce @ref Corrade/Utility/FormatStl.h in addition)
 
 # Advanced formatting options
 
@@ -166,8 +172,7 @@ Example usage:
 
 @snippet Utility.cpp formatInto-buffer
 
-See @ref formatString() for more information about usage and templating
-language.
+See @ref format() for more information about usage and templating language.
 
 @experimental
 */
@@ -183,8 +188,7 @@ not* write any terminating @cpp '\0' @ce character. Example usage:
 
 @snippet Utility.cpp formatInto-stdout
 
-See @ref formatString() for more information about usage and templating
-language.
+See @ref format() for more information about usage and templating language.
 
 @experimental
 */
@@ -218,7 +222,7 @@ namespace Implementation {
 
 enum class FormatType: unsigned char;
 
-template<class T> struct Formatter;
+template<class T, class = void> struct Formatter;
 
 template<> struct Formatter<int> {
     static CORRADE_UTILITY_EXPORT std::size_t format(const Containers::ArrayView<char>& buffer, int value, int precision, FormatType type);
@@ -254,21 +258,34 @@ template<> struct Formatter<double> {
     static CORRADE_UTILITY_EXPORT std::size_t format(const Containers::ArrayView<char>& buffer, double value, int precision, FormatType type);
     static CORRADE_UTILITY_EXPORT void format(std::FILE* file, double value, int precision, FormatType type);
 };
-#ifndef CORRADE_TARGET_EMSCRIPTEN
 template<> struct Formatter<long double> {
     static CORRADE_UTILITY_EXPORT std::size_t format(const Containers::ArrayView<char>& buffer, long double value, int precision, FormatType type);
     static CORRADE_UTILITY_EXPORT void format(std::FILE* file, long double value, int precision, FormatType type);
 };
-#endif
 template<> struct Formatter<const char*> {
     static CORRADE_UTILITY_EXPORT std::size_t format(const Containers::ArrayView<char>& buffer, const char* value, int precision, FormatType type);
     static CORRADE_UTILITY_EXPORT void format(std::FILE* file, const char* value, int precision, FormatType type);
 };
 template<> struct Formatter<char*>: Formatter<const char*> {};
+template<> struct Formatter<Containers::StringView> {
+    static CORRADE_UTILITY_EXPORT std::size_t format(const Containers::ArrayView<char>& buffer, Containers::StringView value, int precision, FormatType type);
+    static CORRADE_UTILITY_EXPORT void format(std::FILE* file, Containers::StringView value, int precision, FormatType type);
+};
+template<> struct Formatter<Containers::MutableStringView>: Formatter<Containers::StringView> {};
+template<> struct Formatter<Containers::String>: Formatter<Containers::StringView> {};
+#ifdef CORRADE_BUILD_DEPRECATED
+/* Sigh, can't mark this with CORRADE_DEPRECATED() because it's then not
+   possible to suppress the warning via CORRADE_IGNORE_DEPRECATED for tests.
+   When removing, remove this type from the table in the docs as well. */
 template<> struct Formatter<Containers::ArrayView<const char>> {
     static CORRADE_UTILITY_EXPORT std::size_t format(const Containers::ArrayView<char>& buffer, Containers::ArrayView<const char> value, int precision, FormatType type);
     static CORRADE_UTILITY_EXPORT void format(std::FILE* file, Containers::ArrayView<const char> value, int precision, FormatType type);
 };
+#endif
+
+/* If the type is an enum, use its underlying type, assuming the enum is
+   convertible to it */
+template<class T> struct Formatter<T, typename std::enable_if<std::is_enum<T>::value>::type>: Formatter<typename std::underlying_type<T>::type> {};
 
 struct BufferFormatter {
     /* Needed for a sentinel value (C arrays can't have zero size) */

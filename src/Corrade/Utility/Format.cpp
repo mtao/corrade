@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -29,8 +29,10 @@
 #include <cstring>
 
 #include "Corrade/Containers/ArrayView.h"
+#include "Corrade/Containers/StringView.h"
+#include "Corrade/Containers/StringStl.h"
 #include "Corrade/Utility/Assert.h"
-#include "Corrade/Utility/DebugStl.h" /** @todo get rid of this */
+#include "Corrade/Utility/TypeTraits.h"
 
 namespace Corrade { namespace Utility { namespace Implementation {
 
@@ -65,11 +67,10 @@ template<> char formatTypeChar<int>(FormatType type) {
         case FormatType::FloatFixed:
         case FormatType::FloatFixedUppercase:
             /* Return some reasonable default so we can test for the assert */
-            CORRADE_ASSERT(false,
-                "Utility::format(): floating-point type used for an integral value", 'i');
+            CORRADE_ASSERT_UNREACHABLE("Utility::format(): floating-point type used for an integral value", 'i');
     }
 
-    CORRADE_ASSERT_UNREACHABLE(); /* LCOV_EXCL_LINE */
+    CORRADE_INTERNAL_ASSERT_UNREACHABLE(); /* LCOV_EXCL_LINE */
 }
 
 template<> char formatTypeChar<unsigned int>(FormatType type) {
@@ -87,11 +88,10 @@ template<> char formatTypeChar<unsigned int>(FormatType type) {
         case FormatType::FloatFixed:
         case FormatType::FloatFixedUppercase:
             /* Return some reasonable default so we can test for the assert */
-            CORRADE_ASSERT(false,
-                "Utility::format(): floating-point type used for an integral value", 'u');
+            CORRADE_ASSERT_UNREACHABLE("Utility::format(): floating-point type used for an integral value", 'u');
     }
 
-    CORRADE_ASSERT_UNREACHABLE(); /* LCOV_EXCL_LINE */
+    CORRADE_INTERNAL_ASSERT_UNREACHABLE(); /* LCOV_EXCL_LINE */
 }
 
 template<> char formatTypeChar<float>(FormatType type) {
@@ -109,11 +109,10 @@ template<> char formatTypeChar<float>(FormatType type) {
         case FormatType::Hexadecimal:
         case FormatType::HexadecimalUppercase:
             /* Return some reasonable default so we can test for the assert */
-            CORRADE_ASSERT(false,
-                "Utility::format(): integral type used for a floating-point value", 'g');
+            CORRADE_ASSERT_UNREACHABLE("Utility::format(): integral type used for a floating-point value", 'g');
     }
 
-    CORRADE_ASSERT_UNREACHABLE(); /* LCOV_EXCL_LINE */
+    CORRADE_INTERNAL_ASSERT_UNREACHABLE(); /* LCOV_EXCL_LINE */
 }
 
 std::size_t Formatter<int>::format(const Containers::ArrayView<char>& buffer, const int value, int precision, const FormatType type) {
@@ -158,83 +157,85 @@ void Formatter<unsigned long long>::format(std::FILE* const file, const unsigned
     std::fprintf(file, format, precision, value);
 }
 
-/* The default. Source: http://en.cppreference.com/w/cpp/io/ios_base/precision,
-   Wikipedia says 6-digit number can be converted back and forth without loss:
-   https://en.wikipedia.org/wiki/Single-precision_floating-point_format
-   Kept in sync with Debug. */
 std::size_t Formatter<float>::format(const Containers::ArrayView<char>& buffer, const float value, int precision, const FormatType type) {
-    if(precision == -1) precision = 6;
+    if(precision == -1) precision = Implementation::FloatPrecision<float>::Digits;
     const char format[]{ '%', '.', '*', formatTypeChar<float>(type), 0 };
     return std::snprintf(buffer, buffer.size(), format, precision, double(value));
 }
 void Formatter<float>::format(std::FILE* const file, const float value, int precision, const FormatType type) {
-    if(precision == -1) precision = 6;
+    if(precision == -1) precision = Implementation::FloatPrecision<float>::Digits;
     const char format[]{ '%', '.', '*', formatTypeChar<float>(type), 0 };
     std::fprintf(file, format, precision, double(value));
 }
 
-/* Wikipedia says 15-digit number can be converted back and forth without loss:
-   https://en.wikipedia.org/wiki/Double-precision_floating-point_format
-   Kept in sync with Debug. */
 std::size_t Formatter<double>::format(const Containers::ArrayView<char>& buffer, const double value, int precision, const FormatType type) {
-    if(precision == -1) precision = 15;
+    if(precision == -1) precision = Implementation::FloatPrecision<double>::Digits;
     const char format[]{ '%', '.', '*', formatTypeChar<float>(type), 0 };
     return std::snprintf(buffer, buffer.size(), format, precision, value);
 }
 void Formatter<double>::format(std::FILE* const file, const double value, int precision, const FormatType type) {
-    if(precision == -1) precision = 15;
+    if(precision == -1) precision = Implementation::FloatPrecision<double>::Digits;
     const char format[]{ '%', '.', '*', formatTypeChar<float>(type), 0 };
     std::fprintf(file, format, precision, value);
 }
 
-#ifndef CORRADE_TARGET_EMSCRIPTEN
-/* Wikipedia says 18-digit number can be converted both ways without
-   loss: https://en.wikipedia.org/wiki/Extended_precision#Working_range
-   Kept in sync with Debug. */
 std::size_t Formatter<long double>::format(const Containers::ArrayView<char>& buffer, const long double value, int precision, const FormatType type) {
-    if(precision == -1) precision = 18;
+    if(precision == -1) precision = Implementation::FloatPrecision<long double>::Digits;
     const char format[]{ '%', '.', '*', 'L', formatTypeChar<float>(type), 0 };
     return std::snprintf(buffer, buffer.size(), format, precision, value);
 }
 void Formatter<long double>::format(std::FILE* const file, const long double value, int precision, const FormatType type) {
-    if(precision == -1) precision = 18;
+    if(precision == -1) precision = Implementation::FloatPrecision<long double>::Digits;
     const char format[]{ '%', '.', '*', 'L', formatTypeChar<float>(type), 0 };
     std::fprintf(file, format, precision, value);
 }
-#endif
 
-std::size_t Formatter<Containers::ArrayView<const char>>::format(const Containers::ArrayView<char>& buffer, const Containers::ArrayView<const char> value, const int precision, const FormatType type) {
+std::size_t Formatter<Containers::StringView>::format(const Containers::ArrayView<char>& buffer, const Containers::StringView value, const int precision, const FormatType type) {
     std::size_t size = value.size();
     if(std::size_t(precision) < size) size = precision;
     CORRADE_ASSERT(type == FormatType::Unspecified,
         "Utility::format(): type specifier can't be used for a string value", {});
+    #ifdef CORRADE_NO_ASSERT
+    static_cast<void>(type);
+    #endif
     /* strncpy() would stop on \0 characters */
-    if(buffer) std::memcpy(buffer, value, size);
+    if(buffer) std::memcpy(buffer, value.data(), size);
     return size;
 }
-void Formatter<Containers::ArrayView<const char>>::format(std::FILE* const file, const Containers::ArrayView<const char> value, const int precision, const FormatType type) {
+void Formatter<Containers::StringView>::format(std::FILE* const file, const Containers::StringView value, const int precision, const FormatType type) {
     std::size_t size = value.size();
     if(std::size_t(precision) < size) size = precision;
     CORRADE_ASSERT(type == FormatType::Unspecified,
         "Utility::format(): type specifier can't be used for a string value", );
+    #ifdef CORRADE_NO_ASSERT
+    static_cast<void>(type);
+    #endif
     std::fwrite(value.data(), size, 1, file);
 }
 std::size_t Formatter<const char*>::format(const Containers::ArrayView<char>& buffer, const char* value, const int precision, const FormatType type) {
-    return Formatter<Containers::ArrayView<const char>>::format(buffer, {value, std::strlen(value)}, precision, type);
+    return Formatter<Containers::StringView>::format(buffer, value, precision, type);
 }
 void Formatter<const char*>::format(std::FILE* const file, const char* value, const int precision, const FormatType type) {
-    Formatter<Containers::ArrayView<const char>>::format(file, {value, std::strlen(value)}, precision, type);
+    Formatter<Containers::StringView>::format(file, value, precision, type);
 }
+#ifdef CORRADE_BUILD_DEPRECATED
+std::size_t Formatter<Containers::ArrayView<const char>>::format(const Containers::ArrayView<char>& buffer, const Containers::ArrayView<const char> value, const int precision, const FormatType type) {
+    return Formatter<Containers::StringView>::format(buffer, value, precision, type);
+}
+void Formatter<Containers::ArrayView<const char>>::format(std::FILE* const file, const Containers::ArrayView<const char> value, const int precision, const FormatType type) {
+    Formatter<Containers::StringView>::format(file, value, precision, type);
+}
+#endif
 std::size_t Formatter<std::string>::format(const Containers::ArrayView<char>& buffer, const std::string& value, const int precision, const FormatType type) {
-    return Formatter<Containers::ArrayView<const char>>::format(buffer, {value.data(), value.size()}, precision, type);
+    return Formatter<Containers::StringView>::format(buffer, value, precision, type);
 }
 void Formatter<std::string>::format(std::FILE* const file, const std::string& value, const int precision, const FormatType type) {
-    return Formatter<Containers::ArrayView<const char>>::format(file, {value.data(), value.size()}, precision, type);
+    return Formatter<Containers::StringView>::format(file, value, precision, type);
 }
 
 namespace {
 
-int parseNumber(Containers::ArrayView<const char> format, std::size_t& formatOffset) {
+int parseNumber(Containers::StringView format, std::size_t& formatOffset) {
     int number = -1;
     while(formatOffset < format.size() && format[formatOffset] >= '0' && format[formatOffset] <= '9') {
         if(number == -1) number = 0;
@@ -245,7 +246,7 @@ int parseNumber(Containers::ArrayView<const char> format, std::size_t& formatOff
     return number;
 }
 
-template<class Writer, class FormattedWriter, class Formatter> void formatWith(const Writer writer, const FormattedWriter formattedWriter, const Containers::ArrayView<const char> format, const Containers::ArrayView<Formatter> formatters) {
+template<class Writer, class FormattedWriter, class Formatter> void formatWith(const Writer writer, const FormattedWriter formattedWriter, const Containers::StringView format, const Containers::ArrayView<Formatter> formatters) {
     bool inPlaceholder = false;
     std::size_t placeholderOffset = 0;
     std::size_t formatterToGo = 0;
@@ -256,7 +257,7 @@ template<class Writer, class FormattedWriter, class Formatter> void formatWith(c
         /* Placeholder begin (or escaped {) */
         if(format[formatOffset] == '{') {
             if(formatOffset + 1 < format.size() && format[formatOffset+1] == '{') {
-                writer(format.slice<1>(formatOffset));
+                writer(format.slice(formatOffset, formatOffset + 1));
                 formatOffset += 2;
                 continue;
             }
@@ -275,7 +276,7 @@ template<class Writer, class FormattedWriter, class Formatter> void formatWith(c
         /* Placeholder end (or escaped }) */
         if(format[formatOffset] == '}') {
             if(!inPlaceholder && formatOffset + 1 < format.size() && format[formatOffset+1] == '}') {
-                writer(format.slice<1>(formatOffset));
+                writer(format.slice(formatOffset, formatOffset + 1));
                 formatOffset += 2;
                 continue;
             }
@@ -316,7 +317,7 @@ template<class Writer, class FormattedWriter, class Formatter> void formatWith(c
                     ++formatOffset;
                     precision = parseNumber(format, formatOffset);
                     CORRADE_ASSERT(precision != -1,
-                        "Utility::format(): invalid character in precision specifier:" << std::string{format[formatOffset]}, );
+                        "Utility::format(): invalid character in precision specifier:" << format.slice(formatOffset, formatOffset + 1), );
                 }
 
                 /* Type */
@@ -355,7 +356,7 @@ template<class Writer, class FormattedWriter, class Formatter> void formatWith(c
                             break;
                         default:
                             CORRADE_ASSERT(false,
-                                "Utility::format(): invalid type specifier:" << std::string{format[formatOffset]}, );
+                                "Utility::format(): invalid type specifier:" << format.slice(formatOffset, formatOffset + 1), );
                     }
                     ++formatOffset;
                 }
@@ -367,7 +368,7 @@ template<class Writer, class FormattedWriter, class Formatter> void formatWith(c
 
             /* Next should be the placeholder end */
             CORRADE_ASSERT(format[formatOffset] == '}',
-                "Utility::format(): unknown placeholder content:" << std::string{format[formatOffset]}, );
+                "Utility::format(): unknown placeholder content:" << format.slice(formatOffset, formatOffset + 1), );
             continue;
         }
 
@@ -403,7 +404,7 @@ std::size_t formatInto(const Containers::ArrayView<char>& buffer, const char* co
         } else if(formatter.size == ~std::size_t{})
             formatter.size = formatter(nullptr, precision, type);
         bufferOffset += formatter.size;
-    }, {format, std::strlen(format)}, Containers::arrayView(formatters, formatterCount));
+    }, format, Containers::arrayView(formatters, formatterCount));
     return bufferOffset;
 }
 
@@ -420,7 +421,7 @@ void formatInto(std::FILE* const file, const char* format, FileFormatter* const 
         fwrite(data.data(), data.size(), 1, file);
     }, [&file](const FileFormatter& formatter, int precision, FormatType type) {
         formatter(file, precision, type);
-    }, {format, std::strlen(format)}, Containers::arrayView(formatters, formatterCount));
+    }, format, Containers::arrayView(formatters, formatterCount));
 }
 
 }

@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -148,6 +148,9 @@ struct OptionalTest: TestSuite::Tester {
 
     void debug();
 
+    void emplaceConstructorExplicitInCopyInitialization();
+    void copyConstructPlainStruct();
+    void moveConstructPlainStruct();
     void vectorOfMovableOptional();
 };
 
@@ -202,6 +205,9 @@ OptionalTest::OptionalTest() {
 
               &OptionalTest::debug,
 
+              &OptionalTest::emplaceConstructorExplicitInCopyInitialization,
+              &OptionalTest::copyConstructPlainStruct,
+              &OptionalTest::moveConstructPlainStruct,
               &OptionalTest::vectorOfMovableOptional});
 }
 
@@ -400,6 +406,14 @@ void OptionalTest::constructMove() {
     CORRADE_COMPARE(Movable::destructed, 2);
     CORRADE_COMPARE(Movable::moved, 1);
 
+    CORRADE_VERIFY(!std::is_copy_constructible<Movable>::value);
+    CORRADE_VERIFY(!std::is_copy_assignable<Movable>::value);
+    {
+        CORRADE_EXPECT_FAIL("Optional currently doesn't propagate deleted copy constructor/assignment correctly.");
+        CORRADE_VERIFY(!std::is_copy_constructible<Optional<Movable>>::value);
+        CORRADE_VERIFY(!std::is_copy_assignable<Optional<Movable>>::value);
+    }
+
     CORRADE_VERIFY(std::is_nothrow_move_constructible<Movable>::value);
     CORRADE_VERIFY(std::is_nothrow_move_constructible<Optional<Movable>>::value);
     CORRADE_VERIFY((std::is_nothrow_constructible<Optional<Movable>, Movable&&>::value));
@@ -441,6 +455,18 @@ void OptionalTest::constructInPlace() {
     CORRADE_COMPARE(Immovable::constructed, 1);
     CORRADE_COMPARE(Immovable::destructed, 1);
 
+    CORRADE_VERIFY(!std::is_copy_constructible<Immovable>::value);
+    CORRADE_VERIFY(!std::is_move_constructible<Immovable>::value);
+    CORRADE_VERIFY(!std::is_copy_assignable<Immovable>::value);
+    CORRADE_VERIFY(!std::is_move_assignable<Immovable>::value);
+    {
+        CORRADE_EXPECT_FAIL("Optional currently doesn't propagate deleted copy/move constructor/assignment correctly.");
+        CORRADE_VERIFY(!std::is_copy_constructible<Optional<Immovable>>::value);
+        CORRADE_VERIFY(!std::is_move_constructible<Optional<Immovable>>::value);
+        CORRADE_VERIFY(!std::is_copy_assignable<Optional<Immovable>>::value);
+        CORRADE_VERIFY(!std::is_move_assignable<Optional<Immovable>>::value);
+    }
+
     CORRADE_VERIFY((std::is_nothrow_constructible<Optional<Immovable>, InPlaceInitT, int, int&&>::value));
     CORRADE_VERIFY((std::is_constructible<Optional<Throwable>, InPlaceInitT, int>::value));
     CORRADE_VERIFY(!(std::is_nothrow_constructible<Optional<Throwable>, InPlaceInitT, int>::value));
@@ -464,7 +490,7 @@ void OptionalTest::constructInPlaceMakeAmbiguous() {
     struct Ambiguous {
         Ambiguous() = default;
         Ambiguous(Ambiguous& parent, int = {}): parent{&parent} {}
-        #ifndef CORRADE_MSVC2017_COMPATIBILITY
+        #ifndef CORRADE_MSVC2019_COMPATIBILITY
         /* https://developercommunity.visualstudio.com/content/problem/358751/c2580-for-different-versions-of-constructors.html,
            affects 2015 as well (https://stackoverflow.com/a/36658141) */
         Ambiguous(const Ambiguous&) = default;
@@ -903,6 +929,10 @@ void OptionalTest::accessRvalue() {
 }
 
 void OptionalTest::accessInvalid() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     struct Innocent {
         void foo() const {}
     };
@@ -932,6 +962,88 @@ void OptionalTest::debug() {
     std::stringstream out;
     Debug{&out} << optional(42) << Optional<int>{} << NullOpt;
     CORRADE_COMPARE(out.str(), "42 Containers::NullOpt Containers::NullOpt\n");
+}
+
+void OptionalTest::emplaceConstructorExplicitInCopyInitialization() {
+    /* See constructHelpers.h for details about this compiler-specific issue */
+    struct ExplicitDefault {
+        explicit ExplicitDefault() = default;
+    };
+
+    struct ContainingExplicitDefaultWithImplicitConstructor {
+        ExplicitDefault a;
+    };
+
+    /* This alone works */
+    ContainingExplicitDefaultWithImplicitConstructor a;
+    static_cast<void>(a);
+
+    /* So this should too */
+    Optional<ContainingExplicitDefaultWithImplicitConstructor> b{InPlaceInit};
+    Optional<ContainingExplicitDefaultWithImplicitConstructor> c;
+    c.emplace();
+    CORRADE_VERIFY(b);
+    CORRADE_VERIFY(c);
+}
+
+void OptionalTest::copyConstructPlainStruct() {
+    struct ExtremelyTrivial {
+        int a;
+        char b;
+    };
+
+    /* This needs special handling on GCC 4.8, where T{b} (copy-construction)
+       attempts to convert ExtremelyTrivial to int to initialize the first
+       argument and fails miserably. */
+    const ExtremelyTrivial value{3, 'a'};
+    Optional<ExtremelyTrivial> a{value};
+    CORRADE_COMPARE(a->a, 3);
+
+    /* This copy-constructs the wrapped value */
+    Optional<ExtremelyTrivial> b = a;
+    CORRADE_COMPARE(b->a, 3);
+
+    /* This deletes and then copy-constructs the wrapped value */
+    Optional<ExtremelyTrivial> c;
+    c = b;
+    CORRADE_COMPARE(c->a, 3);
+}
+
+void OptionalTest::moveConstructPlainStruct() {
+    /* Can't make MoveOnlyStruct directly non-copyable because then we'd hit
+       another GCC 4.8 bug where it can't be constructed using {} anymore. In
+       other tests I simply add a (move-only) Array or Pointer member, but here
+       I don't want to avoid a needless header dependency. */
+    struct MoveOnlyPointer {
+        MoveOnlyPointer(std::nullptr_t) {}
+        MoveOnlyPointer(const MoveOnlyPointer&) = delete;
+        MoveOnlyPointer(MoveOnlyPointer&&) = default;
+        MoveOnlyPointer& operator=(const MoveOnlyPointer&) = delete;
+        MoveOnlyPointer& operator=(MoveOnlyPointer&&) = default;
+
+        std::nullptr_t a;
+    };
+
+    struct MoveOnlyStruct {
+        int a;
+        char c;
+        MoveOnlyPointer b;
+    };
+
+    /* This needs special handling on GCC 4.8, where T{b} (copy-construction)
+       attempts to convert ExtremelyTrivial to int to initialize the first
+       argument and fails miserably. */
+    Optional<MoveOnlyStruct> a{MoveOnlyStruct{3, 'a', nullptr}};
+    CORRADE_COMPARE(a->a, 3);
+
+    /* This copy-constructs the wrapped value */
+    Optional<MoveOnlyStruct> b = std::move(a);
+    CORRADE_COMPARE(b->a, 3);
+
+    /* This deletes and then copy-constructs the wrapped value */
+    Optional<MoveOnlyStruct> c;
+    c = std::move(b);
+    CORRADE_COMPARE(c->a, 3);
 }
 
 void OptionalTest::vectorOfMovableOptional() {

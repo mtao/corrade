@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -57,7 +57,11 @@ ContainerTest::ContainerTest() {
 
 void ContainerTest::same() {
     std::vector<int> a{1, 2, 3, 4};
-    CORRADE_VERIFY(Comparator<Compare::Container<std::vector<int>>>()(a, a));
+    CORRADE_COMPARE(Comparator<Compare::Container<std::vector<int>>>()(a, a), ComparisonStatusFlags{});
+
+    /* Should not return any flags for a success */
+    Comparator<Compare::Container<std::vector<int>>> compare;
+    CORRADE_COMPARE(compare(a, a), ComparisonStatusFlags{});
 }
 
 void ContainerTest::outputActualSmaller() {
@@ -69,8 +73,9 @@ void ContainerTest::outputActualSmaller() {
     {
         Error e(&out);
         Comparator<Compare::Container<std::vector<int>>> compare;
-        CORRADE_VERIFY(!compare(a, b));
-        compare.printErrorMessage(e, "a", "b");
+        ComparisonStatusFlags flags = compare(a, b);
+        CORRADE_COMPARE(flags, ComparisonStatusFlag::Failed);
+        compare.printMessage(flags, e, "a", "b");
     }
 
     CORRADE_COMPARE(out.str(),
@@ -90,8 +95,9 @@ void ContainerTest::outputExpectedSmaller() {
     {
         Error e(&out);
         Comparator<Compare::Container<std::vector<int>>> compare;
-        CORRADE_VERIFY(!compare(a, b));
-        compare.printErrorMessage(e, "a", "b");
+        ComparisonStatusFlags flags = compare(a, b);
+        CORRADE_COMPARE(flags, ComparisonStatusFlag::Failed);
+        compare.printMessage(flags, e, "a", "b");
     }
 
     CORRADE_COMPARE(out.str(), "Containers a and b have different size, actual 4 but 3 expected. Actual contents:\n"
@@ -110,8 +116,9 @@ void ContainerTest::output() {
     {
         Error e(&out);
         Comparator<Compare::Container<std::vector<int>>> compare;
-        CORRADE_VERIFY(!compare(a, b));
-        compare.printErrorMessage(e, "a", "b");
+        ComparisonStatusFlags flags = compare(a, b);
+        CORRADE_COMPARE(flags, ComparisonStatusFlag::Failed);
+        compare.printMessage(flags, e, "a", "b");
     }
 
     CORRADE_COMPARE(out.str(), "Containers a and b have different contents, actual:\n"
@@ -124,25 +131,26 @@ void ContainerTest::output() {
 void ContainerTest::floatingPoint() {
     std::stringstream out;
 
-    std::vector<float> a{3.202122f, 3.202122f};
-    std::vector<float> b{3.202123f, 3.202123f};
-    std::vector<float> c{3.202123f, 3.202130f};
+    std::vector<float> a{3.20212f, 3.20212f};
+    std::vector<float> b{3.20212f, 3.20213f};
+    std::vector<float> c{3.20213f, 3.20219f};
 
-    CORRADE_VERIFY(Comparator<Compare::Container<std::vector<float>>>{}(a, b));
+    CORRADE_COMPARE(Comparator<Compare::Container<std::vector<float>>>{}(a, b), ComparisonStatusFlags{});
 
     {
         Error e(&out);
         Comparator<Compare::Container<std::vector<float>>> compare;
-        CORRADE_VERIFY(!compare(a, c));
-        compare.printErrorMessage(e, "a", "b");
+        ComparisonStatusFlags flags = compare(a, c);
+        CORRADE_COMPARE(flags, ComparisonStatusFlag::Failed);
+        compare.printMessage(flags, e, "a", "c");
     }
 
     /* It should report the second element, not the first */
-    CORRADE_COMPARE(out.str(), "Containers a and b have different contents, actual:\n"
+    CORRADE_COMPARE(out.str(), "Containers a and c have different contents, actual:\n"
         "        {3.20212, 3.20212}\n"
         "        but expected\n"
-        "        {3.20212, 3.20213}\n"
-        "        Actual 3.20212 but 3.20213 expected on position 1.\n");
+        "        {3.20213, 3.20219}\n"
+        "        Actual 3.20212 but 3.20219 expected on position 1.\n");
 }
 
 void ContainerTest::nonCopyableArray() {
@@ -150,9 +158,9 @@ void ContainerTest::nonCopyableArray() {
     Containers::Array<int> b{Containers::InPlaceInit, {1, 2, 3, 4, 5}};
     Containers::Array<int> c{Containers::InPlaceInit, {1, 2, 3, 5, 5}};
 
-    CORRADE_VERIFY(Comparator<Compare::Container<Containers::Array<int>>>()(a, a));
-    CORRADE_VERIFY(Comparator<Compare::Container<Containers::Array<int>>>()(a, b));
-    CORRADE_VERIFY(!Comparator<Compare::Container<Containers::Array<int>>>()(a, c));
+    CORRADE_COMPARE(Comparator<Compare::Container<Containers::Array<int>>>()(a, a), ComparisonStatusFlags{});
+    CORRADE_COMPARE(Comparator<Compare::Container<Containers::Array<int>>>()(a, b), ComparisonStatusFlags{});
+    CORRADE_COMPARE(Comparator<Compare::Container<Containers::Array<int>>>()(a, c), ComparisonStatusFlag::Failed);
 }
 
 }}}}}

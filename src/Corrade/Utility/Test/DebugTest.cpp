@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -30,9 +30,15 @@
 #include <string>
 #include <vector>
 
+#include "Corrade/Containers/String.h"
+#include "Corrade/Containers/StringView.h"
 #include "Corrade/TestSuite/Tester.h"
 #include "Corrade/Utility/Debug.h"
 #include "Corrade/Utility/DebugStl.h"
+
+#ifndef CORRADE_TARGET_EMSCRIPTEN
+#include <thread>
+#endif
 
 namespace Corrade { namespace Utility { namespace Test { namespace {
 
@@ -42,6 +48,8 @@ struct DebugTest: TestSuite::Tester {
     void isTty();
 
     void debug();
+    void string();
+    void stringStl();
     template<class T> void ints();
     template<class T> void floats();
     void boolean();
@@ -53,6 +61,7 @@ struct DebugTest: TestSuite::Tester {
     void flags();
     void nospace();
     void newline();
+    void space();
     void noNewlineAtTheEnd();
 
     void colors();
@@ -81,6 +90,14 @@ struct DebugTest: TestSuite::Tester {
     void scopedOutput();
 
     void debugColor();
+    void debugFlag();
+    void debugFlags();
+
+    #ifndef CORRADE_TARGET_EMSCRIPTEN
+    void multithreaded();
+    #endif
+
+    void sourceLocation();
 };
 
 DebugTest::DebugTest() {
@@ -88,6 +105,8 @@ DebugTest::DebugTest() {
         &DebugTest::isTty,
 
         &DebugTest::debug,
+        &DebugTest::string,
+        &DebugTest::stringStl,
         &DebugTest::boolean,
         &DebugTest::ints<unsigned char>,
         &DebugTest::ints<char>,
@@ -101,9 +120,7 @@ DebugTest::DebugTest() {
         &DebugTest::ints<long long>,
         &DebugTest::floats<float>,
         &DebugTest::floats<double>,
-        #ifndef CORRADE_TARGET_EMSCRIPTEN
         &DebugTest::floats<long double>,
-        #endif
         &DebugTest::chars,
         &DebugTest::pointer,
         &DebugTest::unicode,
@@ -112,6 +129,7 @@ DebugTest::DebugTest() {
         &DebugTest::flags,
         &DebugTest::nospace,
         &DebugTest::newline,
+        &DebugTest::space,
         &DebugTest::noNewlineAtTheEnd});
 
     addInstancedTests({&DebugTest::colors}, 9);
@@ -141,7 +159,15 @@ DebugTest::DebugTest() {
 
         &DebugTest::scopedOutput,
 
-        &DebugTest::debugColor});
+        &DebugTest::debugColor,
+        &DebugTest::debugFlag,
+        &DebugTest::debugFlags,
+
+        #ifndef CORRADE_TARGET_EMSCRIPTEN
+        &DebugTest::multithreaded,
+        #endif
+
+        &DebugTest::sourceLocation});
 }
 
 void DebugTest::debug() {
@@ -171,12 +197,28 @@ void DebugTest::debug() {
     CORRADE_COMPARE(debug.str(), "");
 }
 
+void DebugTest::string() {
+    using namespace Containers::Literals;
+
+    Containers::String a = "mutable";
+
+    std::ostringstream out;
+    Debug{&out} << "hello\0world,"_s << Containers::String{"very\0well!"_s} << Containers::MutableStringView{a};
+    CORRADE_COMPARE(out.str(), (std::string{"hello\0world, very\0well! mutable\n", 32}));
+}
+
+void DebugTest::stringStl() {
+    std::ostringstream out;
+    Debug{&out} << std::string{"hello\0world!", 12};
+    CORRADE_COMPARE(out.str(), (std::string{"hello\0world!\n", 13}));
+}
+
 template<class> struct IntsData;
 template<> struct IntsData<char> {
-    static const char* name() { return "ints<char>"; }
+    static const char* name() { return "char"; }
     static char value() {
         /* Android has unsigned char */
-        return std::is_signed<char>::value ? -123 : 223;
+        return std::is_signed<char>::value ? -123 : char(223);
     }
     static const char* expected() {
         /* Android has unsigned char */
@@ -184,37 +226,37 @@ template<> struct IntsData<char> {
     }
 };
 template<> struct IntsData<unsigned char> {
-    static const char* name() { return "ints<unsigned char>"; }
+    static const char* name() { return "unsigned char"; }
     static unsigned char value() { return 223; }
     static const char* expected() { return "223\n"; }
 };
 template<> struct IntsData<short> {
-    static const char* name() { return "ints<short>"; }
+    static const char* name() { return "short"; }
     static short value() { return -31752; }
     static const char* expected() { return "-31752\n"; }
 };
 template<> struct IntsData<unsigned short> {
-    static const char* name() { return "ints<unsigned short>"; }
+    static const char* name() { return "unsigned short"; }
     static unsigned short value() { return 48523; }
     static const char* expected() { return "48523\n"; }
 };
 template<> struct IntsData<int> {
-    static const char* name() { return "ints<int>"; }
+    static const char* name() { return "int"; }
     static int value() { return -1423584221; }
     static const char* expected() { return "-1423584221\n"; }
 };
 template<> struct IntsData<unsigned int> {
-    static const char* name() { return "ints<unsigned int>"; }
+    static const char* name() { return "unsigned int"; }
     static unsigned int value() { return 4214211824; }
     static const char* expected() { return "4214211824\n"; }
 };
 template<> struct IntsData<long long> {
-    static const char* name() { return "ints<long long>"; }
+    static const char* name() { return "long long"; }
     static long long value() { return -4214211824234535464ll; }
     static const char* expected() { return "-4214211824234535464\n"; }
 };
 template<> struct IntsData<unsigned long long> {
-    static const char* name() { return "ints<unsigned long long>"; }
+    static const char* name() { return "unsigned long long"; }
     static unsigned long long value() { return 14214211824234535464ull; }
     static const char* expected() { return "14214211824234535464\n"; }
 };
@@ -225,15 +267,15 @@ template<> struct IntsDataFor<8>: IntsData<long long> {};
 template<> struct IntsDataForUnsigned<4>: IntsData<unsigned int> {};
 template<> struct IntsDataForUnsigned<8>: IntsData<unsigned long long> {};
 template<> struct IntsData<long>: IntsDataFor<sizeof(long)> {
-    static const char* name() { return "ints<long>"; }
+    static const char* name() { return "long"; }
 };
 template<> struct IntsData<unsigned long>: IntsDataForUnsigned<sizeof(long)> {
-    static const char* name() { return "ints<unsigned long>"; }
+    static const char* name() { return "unsigned long"; }
 };
 
 template<class> struct FloatsData;
 template<> struct FloatsData<float> {
-    static const char* name() { return "floats<float>"; }
+    static const char* name() { return "float"; }
     static const char* expected() {
         #ifndef __MINGW32__
         return "3.14159 -12345.7 1.23457e-12 3.14159\n";
@@ -243,7 +285,7 @@ template<> struct FloatsData<float> {
     }
 };
 template<> struct FloatsData<double> {
-    static const char* name() { return "floats<double>"; }
+    static const char* name() { return "double"; }
     static const char* expected() {
         #ifndef __MINGW32__
         return "3.14159265358979 -12345.6789012346 1.23456789012346e-12 3.14159\n";
@@ -252,18 +294,20 @@ template<> struct FloatsData<double> {
         #endif
     }
 };
-#ifndef CORRADE_TARGET_EMSCRIPTEN
 template<> struct FloatsData<long double> {
-    static const char* name() { return "floats<long double>"; }
+    static const char* name() { return "long double"; }
     static const char* expected() {
         #ifndef __MINGW32__
+        #ifndef CORRADE_LONG_DOUBLE_SAME_AS_DOUBLE
         return "3.14159265358979324 -12345.6789012345679 1.23456789012345679e-12 3.14159\n";
+        #else
+        return "3.14159265358979 -12345.6789012346 1.23456789012346e-12 3.14159\n";
+        #endif
         #else
         return "3.14159265358979324 -12345.6789012345679 1.23456789012345679e-012 3.14159\n";
         #endif
     }
 };
-#endif
 
 void DebugTest::isTty() {
     Debug{} << "Debug output is a TTY?  " << (Debug::isTty() ? "yes" : "no");
@@ -277,7 +321,7 @@ void DebugTest::isTty() {
 }
 
 template<class T> void DebugTest::ints() {
-    setTestCaseName(IntsData<T>::name());
+    setTestCaseTemplateName(IntsData<T>::name());
 
     std::ostringstream out;
     Debug{&out} << IntsData<T>::value();
@@ -285,7 +329,7 @@ template<class T> void DebugTest::ints() {
 }
 
 template<class T> void DebugTest::floats() {
-    setTestCaseName(FloatsData<T>::name());
+    setTestCaseTemplateName(FloatsData<T>::name());
 
     /* This test is shared with Format to ensure consistency of output */
 
@@ -320,7 +364,7 @@ void DebugTest::chars() {
 
 void DebugTest::pointer() {
     std::ostringstream out;
-    Debug{&out} << reinterpret_cast<void*>(0xdeadbabe) << nullptr;
+    Debug{&out} << reinterpret_cast<void*>(0xdeadbabeu) << nullptr;
     CORRADE_COMPARE(out.str(), "0xdeadbabe nullptr\n");
 }
 
@@ -428,6 +472,12 @@ void DebugTest::newline() {
     Debug(&out) << "Value:" << Debug::newline << 16;
 
     CORRADE_COMPARE(out.str(), "Value:\n16\n");
+}
+
+void DebugTest::space() {
+    std::ostringstream out;
+    Debug(&out) << Debug::space << Debug::space << "Value:" << Debug::space << 16;
+    CORRADE_COMPARE(out.str(), "  Value: 16\n");
 }
 
 void DebugTest::noNewlineAtTheEnd() {
@@ -867,7 +917,85 @@ void DebugTest::debugColor() {
     std::ostringstream out;
 
     Debug(&out) << Debug::Color::White << Debug::Color(0xde);
-    CORRADE_COMPARE(out.str(), "Debug::Color::White Debug::Color(0xde)\n");
+    CORRADE_COMPARE(out.str(), "Utility::Debug::Color::White Utility::Debug::Color(0xde)\n");
+}
+
+void DebugTest::debugFlag() {
+    std::ostringstream out;
+
+    Debug(&out) << Debug::Flag::NoNewlineAtTheEnd << Debug::Flag(0xde);
+    CORRADE_COMPARE(out.str(), "Utility::Debug::Flag::NoNewlineAtTheEnd Utility::Debug::Flag(0xde)\n");
+}
+
+void DebugTest::debugFlags() {
+    std::ostringstream out;
+
+    Debug(&out) << (Debug::Flag::NoNewlineAtTheEnd|Debug::Flag::Packed) << Debug::Flags{};
+    CORRADE_COMPARE(out.str(), "Utility::Debug::Flag::NoNewlineAtTheEnd|Utility::Debug::Flag::Packed Utility::Debug::Flags{}\n");
+}
+
+#ifndef CORRADE_TARGET_EMSCRIPTEN
+void DebugTest::multithreaded() {
+    std::ostream* defaultOutput = Debug::output();
+
+    std::ostream* threadOutput = nullptr;
+    std::ostringstream another;
+    {
+        Debug out{&another};
+
+        std::thread t{[](std::ostream*& output) {
+            output = Debug::output();
+        }, std::ref(threadOutput)};
+
+        t.join();
+    }
+
+    Debug{} << "CORRADE_BUILD_MULTITHREADED defined:" <<
+        #ifdef CORRADE_BUILD_MULTITHREADED
+        true
+        #else
+        false
+        #endif
+        ;
+
+    Debug{} << "Output redirection visible in another thread:" << (threadOutput == &another);
+
+    #ifdef CORRADE_BUILD_MULTITHREADED
+    CORRADE_COMPARE(threadOutput, defaultOutput);
+    #else
+    CORRADE_COMPARE(threadOutput, &another);
+    #endif
+}
+#endif
+
+void DebugTest::sourceLocation() {
+    std::ostringstream out;
+
+    {
+        Debug redirect{&out};
+
+        !Debug{} << "hello";
+
+        !Debug{} << "and this is from another line";
+
+        !Debug{};
+
+        Debug{} << "this no longer";
+    }
+
+    #ifdef CORRADE_UTILITY_DEBUG_HAS_SOURCE_LOCATION
+    CORRADE_COMPARE(out.str(),
+        __FILE__ ":977: hello\n"
+        __FILE__ ":979: and this is from another line\n"
+        __FILE__ ":981\n"
+        "this no longer\n");
+    #else
+    CORRADE_COMPARE(out.str(),
+        "hello\n"
+        "and this is from another line\n"
+        "this no longer\n");
+    CORRADE_SKIP("Source location builtins not available.");
+    #endif
 }
 
 }}}}

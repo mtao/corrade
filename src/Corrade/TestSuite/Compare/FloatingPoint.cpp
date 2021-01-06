@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -25,15 +25,17 @@
 
 #include "FloatingPoint.h"
 
+#include "Corrade/TestSuite/Comparator.h"
 #include "Corrade/Utility/Debug.h"
 #include "Corrade/Utility/StlMath.h"
 
 namespace Corrade { namespace TestSuite { namespace Implementation {
 
 /* Adapted from http://floating-point-gui.de/errors/comparison/ */
-template<class T> bool FloatComparator<T>::operator()(T actual, T expected) {
+template<class T> ComparisonStatusFlags FloatComparator<T>::operator()(T actual, T expected) {
     /* Shortcut for binary equality, infinites and NaN */
-    if(actual == expected || (actual != actual && expected != expected)) return true;
+    if(actual == expected || (actual != actual && expected != expected))
+        return {};
 
     const T absA = std::abs(actual);
     const T absB = std::abs(expected);
@@ -41,27 +43,26 @@ template<class T> bool FloatComparator<T>::operator()(T actual, T expected) {
 
     /* One of the numbers is zero or both are extremely close to it, relative
        error is meaningless */
-    if((actual == T{} || expected == T{} || difference < FloatComparatorEpsilon<T>::epsilon())) {
-        if(difference < FloatComparatorEpsilon<T>::epsilon()) return true;
+    if((actual == T{} || expected == T{} || difference < Utility::Implementation::FloatPrecision<T>::epsilon())) {
+        if(difference < Utility::Implementation::FloatPrecision<T>::epsilon())
+            return {};
     }
 
     /* Relative error */
-    else if(difference/(absA + absB) < FloatComparatorEpsilon<T>::epsilon())
-        return true;
+    else if(difference/(absA + absB) < Utility::Implementation::FloatPrecision<T>::epsilon())
+        return {};
 
     _actualValue = actual;
     _expectedValue = expected;
-    return false;
+    return ComparisonStatusFlag::Failed;
 }
 
-template<class T> void FloatComparator<T>::printErrorMessage(Utility::Error& e, const char* actual, const char* expected) const {
-    e << "Floating-point values" << actual << "and" << expected << "are not the same, actual" << _actualValue << "but" << _expectedValue << "expected (delta" << _actualValue - _expectedValue << Utility::Debug::nospace << ").";
+template<class T> void FloatComparator<T>::printMessage(ComparisonStatusFlags, Utility::Debug& out, const char* actual, const char* expected) const {
+    out << "Floating-point values" << actual << "and" << expected << "are not the same, actual" << _actualValue << "but" << _expectedValue << "expected (delta" << _actualValue - _expectedValue << Utility::Debug::nospace << ").";
 }
 
 template class FloatComparator<float>;
 template class FloatComparator<double>;
-#ifndef CORRADE_TARGET_EMSCRIPTEN
 template class FloatComparator<long double>;
-#endif
 
 }}}

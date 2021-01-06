@@ -2,7 +2,7 @@
 #   This file is part of Corrade.
 #
 #   Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-#               2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+#               2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a
 #   copy of this software and associated documentation files (the "Software"),
@@ -25,12 +25,17 @@
 
 set(CorradeContainers_HEADERS
     Array.h
+    ArrayTuple.h
     ArrayView.h
     ArrayViewStl.h
     ArrayViewStlSpan.h
+    BigEnumSet.h
+    BigEnumSet.hpp
+    constructHelpers.h
     Containers.h
     EnumSet.h
     EnumSet.hpp
+    GrowableArray.h
     LinkedList.h
     Optional.h
     OptionalStl.h
@@ -38,16 +43,23 @@ set(CorradeContainers_HEADERS
     PointerStl.h
     Reference.h
     ScopeGuard.h
+    sequenceHelpers.h
     StaticArray.h
     StridedArrayView.h
+    String.h
+    StringStl.h
+    StringView.h
     Tags.h)
 
-if(BUILD_DEPRECATED)
-    list(APPEND CorradeContainers_HEADERS ScopedExit.h)
-endif()
+set(CorradeContainers_PRIVATE_HEADERS
+    Implementation/RawForwardList.h)
+
+# Sources are compiled as part of Utility
 
 # Force IDEs to display all header files in project view
-add_custom_target(CorradeContainers-headers SOURCES ${CorradeContainers_HEADERS})
+add_custom_target(CorradeContainers-headers SOURCES
+    ${CorradeContainers_HEADERS}
+    ${CorradeContainers_PRIVATE_HEADERS})
 set_target_properties(CorradeContainers-headers PROPERTIES FOLDER "Corrade/Containers")
 
 install(FILES ${CorradeContainers_HEADERS} DESTINATION ${CORRADE_INCLUDE_INSTALL_DIR}/Containers)

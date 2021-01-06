@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -72,12 +72,13 @@ struct ArrayTest: TestSuite::Tester {
 
     void constructEmpty();
     void constructNullptr();
+    void construct();
     void constructDefaultInit();
     void constructValueInit();
-    void constructNoInit();
+    void constructNoInitNonTrivial();
+    void constructNoInitTrivial();
     void constructDirectInit();
     void constructInPlaceInit();
-    void construct();
     void constructFromExisting();
     void constructZeroSize();
     void constructMove();
@@ -113,6 +114,10 @@ struct ArrayTest: TestSuite::Tester {
 
     void cast();
     void size();
+
+    void emplaceConstructorExplicitInCopyInitialization();
+    void copyConstructPlainStruct();
+    void moveConstructPlainStruct();
 };
 
 typedef Containers::Array<int> Array;
@@ -124,12 +129,13 @@ typedef Containers::ArrayView<const void> ConstVoidArrayView;
 ArrayTest::ArrayTest() {
     addTests({&ArrayTest::constructEmpty,
               &ArrayTest::constructNullptr,
+              &ArrayTest::construct,
               &ArrayTest::constructDefaultInit,
               &ArrayTest::constructValueInit,
-              &ArrayTest::constructNoInit,
+              &ArrayTest::constructNoInitNonTrivial,
+              &ArrayTest::constructNoInitTrivial,
               &ArrayTest::constructDirectInit,
               &ArrayTest::constructInPlaceInit,
-              &ArrayTest::construct,
               &ArrayTest::constructFromExisting,
               &ArrayTest::constructZeroSize,
               &ArrayTest::constructMove,
@@ -164,7 +170,11 @@ ArrayTest::ArrayTest() {
               &ArrayTest::customDeleterTypeConstruct,
 
               &ArrayTest::cast,
-              &ArrayTest::size});
+              &ArrayTest::size,
+
+              &ArrayTest::emplaceConstructorExplicitInCopyInitialization,
+              &ArrayTest::copyConstructPlainStruct,
+              &ArrayTest::moveConstructPlainStruct});
 }
 
 void ArrayTest::constructEmpty() {
@@ -193,6 +203,13 @@ void ArrayTest::construct() {
     CORRADE_VERIFY(a != nullptr);
     CORRADE_COMPARE(a.size(), 5);
 
+    /* Values should be zero-initialized (same as ValueInit) */
+    CORRADE_COMPARE(a[0], 0);
+    CORRADE_COMPARE(a[1], 0);
+    CORRADE_COMPARE(a[2], 0);
+    CORRADE_COMPARE(a[3], 0);
+    CORRADE_COMPARE(a[4], 0);
+
     /* Implicit construction from std::size_t is not allowed */
     CORRADE_VERIFY(!(std::is_convertible<std::size_t, Array>::value));
 }
@@ -208,14 +225,28 @@ void ArrayTest::constructDefaultInit() {
     const Array a{DefaultInit, 5};
     CORRADE_VERIFY(a);
     CORRADE_COMPARE(a.size(), 5);
+
+    /* Values are random memory */
 }
 
 void ArrayTest::constructValueInit() {
-    const Array a{ValueInit, 2};
+    const Array a{ValueInit, 5};
     CORRADE_VERIFY(a);
-    CORRADE_COMPARE(a.size(), 2);
+    CORRADE_COMPARE(a.size(), 5);
+
+    /* Values should be zero-initialized (same as the default constructor) */
     CORRADE_COMPARE(a[0], 0);
     CORRADE_COMPARE(a[1], 0);
+    CORRADE_COMPARE(a[2], 0);
+    CORRADE_COMPARE(a[3], 0);
+    CORRADE_COMPARE(a[4], 0);
+}
+
+void ArrayTest::constructNoInitTrivial() {
+    const Array a{NoInit, 5};
+    CORRADE_VERIFY(a);
+    CORRADE_COMPARE(a.size(), 5);
+    CORRADE_VERIFY(!a.deleter());
 }
 
 struct Foo {
@@ -225,10 +256,11 @@ struct Foo {
 
 int Foo::constructorCallCount = 0;
 
-void ArrayTest::constructNoInit() {
+void ArrayTest::constructNoInitNonTrivial() {
     const Containers::Array<Foo> a{NoInit, 5};
     CORRADE_VERIFY(a);
     CORRADE_COMPARE(a.size(), 5);
+    CORRADE_VERIFY(a.deleter());
     CORRADE_COMPARE(Foo::constructorCallCount, 0);
 
     const Containers::Array<Foo> b{DefaultInit, 7};
@@ -244,16 +276,27 @@ void ArrayTest::constructDirectInit() {
 }
 
 void ArrayTest::constructInPlaceInit() {
-    Array a{InPlaceInit, {1, 3, 127, -48}};
-    CORRADE_VERIFY(a);
-    CORRADE_COMPARE(a.size(), 4);
-    CORRADE_COMPARE(a[0], 1);
-    CORRADE_COMPARE(a[1], 3);
-    CORRADE_COMPARE(a[2], 127);
-    CORRADE_COMPARE(a[3], -48);
+    Array a1{InPlaceInit, {1, 3, 127, -48}};
+    CORRADE_VERIFY(a1);
+    CORRADE_COMPARE(a1.size(), 4);
+    CORRADE_COMPARE(a1[0], 1);
+    CORRADE_COMPARE(a1[1], 3);
+    CORRADE_COMPARE(a1[2], 127);
+    CORRADE_COMPARE(a1[3], -48);
 
-    Array b{InPlaceInit, {}};
-    CORRADE_VERIFY(!b);
+    Array a2 = array<int>({1, 3, 127, -48});
+    CORRADE_VERIFY(a2);
+    CORRADE_COMPARE(a2.size(), 4);
+    CORRADE_COMPARE(a2[0], 1);
+    CORRADE_COMPARE(a2[1], 3);
+    CORRADE_COMPARE(a2[2], 127);
+    CORRADE_COMPARE(a2[3], -48);
+
+    Array b1{InPlaceInit, {}};
+    CORRADE_VERIFY(!b1);
+
+    Array b2 = array<int>({});
+    CORRADE_VERIFY(!b2);
 }
 
 void ArrayTest::constructZeroSize() {
@@ -264,7 +307,8 @@ void ArrayTest::constructZeroSize() {
 }
 
 void ArrayTest::constructMove() {
-    Array a(5);
+    auto myDeleter = [](int* data, std::size_t) { delete[] data; };
+    Array a(new int[5], 5, myDeleter);
     CORRADE_VERIFY(a);
     const int* const ptr = a;
 
@@ -273,13 +317,21 @@ void ArrayTest::constructMove() {
     CORRADE_VERIFY(b == ptr);
     CORRADE_COMPARE(a.size(), 0);
     CORRADE_COMPARE(b.size(), 5);
+    CORRADE_VERIFY(a.deleter() == nullptr);
+    CORRADE_VERIFY(b.deleter() == myDeleter);
 
-    Array c;
+    auto noDeleter = [](int*, std::size_t) {};
+    Array c{reinterpret_cast<int*>(0x3), 3, noDeleter};
     c = std::move(b);
-    CORRADE_VERIFY(b == nullptr);
+    CORRADE_VERIFY(b == reinterpret_cast<int*>(0x3));
     CORRADE_VERIFY(c == ptr);
-    CORRADE_COMPARE(b.size(), 0);
+    CORRADE_COMPARE(b.size(), 3);
     CORRADE_COMPARE(c.size(), 5);
+    CORRADE_VERIFY(b.deleter() == noDeleter);
+    CORRADE_VERIFY(c.deleter() == myDeleter);
+
+    CORRADE_VERIFY(std::is_nothrow_move_constructible<Array>::value);
+    CORRADE_VERIFY(std::is_nothrow_move_assignable<Array>::value);
 }
 
 void ArrayTest::constructDirectReferences() {
@@ -302,7 +354,10 @@ void ArrayTest::constructDirectReferences() {
 void ArrayTest::convertBool() {
     CORRADE_VERIFY(Array(2));
     CORRADE_VERIFY(!Array());
-    CORRADE_VERIFY(!(std::is_convertible<Array, int>::value));
+
+    /* Explicit conversion to bool is allowed, but not to int */
+    CORRADE_VERIFY((std::is_constructible<bool, Array>::value));
+    CORRADE_VERIFY(!(std::is_constructible<int, Array>::value));
 }
 
 void ArrayTest::convertPointer() {
@@ -355,6 +410,10 @@ void ArrayTest::convertView() {
         CORRADE_COMPARE(cb.size(), 5);
         CORRADE_COMPARE(bc.size(), 5);
         CORRADE_COMPARE(cbc.size(), 5);
+
+        ArrayView c = Array{3};
+        CORRADE_COMPARE(c.size(), 3);
+        /* The rest is a dangling pointer, can't test */
     } {
         const auto b = arrayView(a);
         const auto cb = arrayView(ca);
@@ -372,6 +431,11 @@ void ArrayTest::convertView() {
         CORRADE_COMPARE(cb.size(), 5);
         CORRADE_COMPARE(bc.size(), 5);
         CORRADE_COMPARE(cbc.size(), 5);
+
+        auto c = arrayView(Array{3});
+        CORRADE_VERIFY((std::is_same<decltype(c), ArrayView>::value));
+        CORRADE_COMPARE(c.size(), 3);
+        /* The rest is a dangling pointer, can't test */
     }
 }
 void ArrayTest::convertViewDerived() {
@@ -498,6 +562,10 @@ void ArrayTest::accessConst() {
 }
 
 void ArrayTest::accessInvalid() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::stringstream out;
     Error redirectError{&out};
 
@@ -546,17 +614,29 @@ void ArrayTest::slice() {
     CORRADE_COMPARE(bc[1], 3);
     CORRADE_COMPARE(bc[2], 4);
 
-    ArrayView c = a.prefix(3);
-    CORRADE_COMPARE(c.size(), 3);
-    CORRADE_COMPARE(c[0], 1);
-    CORRADE_COMPARE(c[1], 2);
-    CORRADE_COMPARE(c[2], 3);
+    ArrayView c1 = a.prefix(3);
+    CORRADE_COMPARE(c1.size(), 3);
+    CORRADE_COMPARE(c1[0], 1);
+    CORRADE_COMPARE(c1[1], 2);
+    CORRADE_COMPARE(c1[2], 3);
 
-    ConstArrayView cc = ac.prefix(3);
-    CORRADE_COMPARE(cc.size(), 3);
-    CORRADE_COMPARE(cc[0], 1);
-    CORRADE_COMPARE(cc[1], 2);
-    CORRADE_COMPARE(cc[2], 3);
+    ConstArrayView cc1 = ac.prefix(3);
+    CORRADE_COMPARE(cc1.size(), 3);
+    CORRADE_COMPARE(cc1[0], 1);
+    CORRADE_COMPARE(cc1[1], 2);
+    CORRADE_COMPARE(cc1[2], 3);
+
+    ArrayView c2 = a.except(2);
+    CORRADE_COMPARE(c2.size(), 3);
+    CORRADE_COMPARE(c2[0], 1);
+    CORRADE_COMPARE(c2[1], 2);
+    CORRADE_COMPARE(c2[2], 3);
+
+    ConstArrayView cc2 = ac.except(2);
+    CORRADE_COMPARE(cc2.size(), 3);
+    CORRADE_COMPARE(cc2[0], 1);
+    CORRADE_COMPARE(cc2[1], 2);
+    CORRADE_COMPARE(cc2[2], 3);
 
     ArrayView d = a.suffix(2);
     CORRADE_COMPARE(d.size(), 3);
@@ -616,15 +696,25 @@ void ArrayTest::sliceToStatic() {
     Array a{InPlaceInit, {1, 2, 3, 4, 5}};
     const Array ac{InPlaceInit, {1, 2, 3, 4, 5}};
 
-    StaticArrayView<3, int> b = a.slice<3>(1);
-    CORRADE_COMPARE(b[0], 2);
-    CORRADE_COMPARE(b[1], 3);
-    CORRADE_COMPARE(b[2], 4);
+    StaticArrayView<3, int> b1 = a.slice<3>(1);
+    CORRADE_COMPARE(b1[0], 2);
+    CORRADE_COMPARE(b1[1], 3);
+    CORRADE_COMPARE(b1[2], 4);
 
-    StaticArrayView<3, const int> bc = ac.slice<3>(1);
-    CORRADE_COMPARE(bc[0], 2);
-    CORRADE_COMPARE(bc[1], 3);
-    CORRADE_COMPARE(bc[2], 4);
+    StaticArrayView<3, const int> bc1 = ac.slice<3>(1);
+    CORRADE_COMPARE(bc1[0], 2);
+    CORRADE_COMPARE(bc1[1], 3);
+    CORRADE_COMPARE(bc1[2], 4);
+
+    StaticArrayView<3, int> b2 = a.slice<1, 4>();
+    CORRADE_COMPARE(b2[0], 2);
+    CORRADE_COMPARE(b2[1], 3);
+    CORRADE_COMPARE(b2[2], 4);
+
+    StaticArrayView<3, const int> bc2 = ac.slice<1, 4>();
+    CORRADE_COMPARE(bc2[0], 2);
+    CORRADE_COMPARE(bc2[1], 3);
+    CORRADE_COMPARE(bc2[2], 4);
 
     StaticArrayView<3, int> c = a.prefix<3>();
     CORRADE_COMPARE(c.size(), 3);
@@ -655,7 +745,8 @@ void ArrayTest::sliceToStaticPointer() {
 }
 
 void ArrayTest::release() {
-    Array a(5);
+    auto myDeleter = [](int* data, std::size_t) { delete[] data; };
+    Array a(new int[5], 5, myDeleter);
     int* const data = a;
     int* const released = a.release();
     delete[] released;
@@ -665,11 +756,12 @@ void ArrayTest::release() {
     CORRADE_COMPARE(reinterpret_cast<std::intptr_t>(data), reinterpret_cast<std::intptr_t>(released));
     CORRADE_COMPARE(a.begin(), nullptr);
     CORRADE_COMPARE(a.size(), 0);
+    CORRADE_VERIFY(a.deleter() == nullptr);
 }
 
 void ArrayTest::defaultDeleter() {
     Array a{5};
-    CORRADE_COMPARE(a.deleter(), nullptr);
+    CORRADE_VERIFY(a.deleter() == nullptr);
 }
 
 int CustomDeleterDeletedCount = 0;
@@ -746,15 +838,15 @@ void ArrayTest::cast() {
     CORRADE_VERIFY((std::is_same<decltype(dc), Containers::ArrayView<const std::uint16_t>>::value));
     CORRADE_VERIFY((std::is_same<decltype(cdc), Containers::ArrayView<const std::uint16_t>>::value));
 
-    CORRADE_COMPARE(reinterpret_cast<void*>(b.begin()), reinterpret_cast<void*>(a.begin()));
-    CORRADE_COMPARE(reinterpret_cast<const void*>(cb.begin()), reinterpret_cast<const void*>(ca.begin()));
-    CORRADE_COMPARE(reinterpret_cast<const void*>(bc.begin()), reinterpret_cast<const void*>(ac.begin()));
-    CORRADE_COMPARE(reinterpret_cast<const void*>(cbc.begin()), reinterpret_cast<const void*>(cac.begin()));
+    CORRADE_COMPARE(static_cast<void*>(b.begin()), static_cast<void*>(a.begin()));
+    CORRADE_COMPARE(static_cast<const void*>(cb.begin()), static_cast<const void*>(ca.begin()));
+    CORRADE_COMPARE(static_cast<const void*>(bc.begin()), static_cast<const void*>(ac.begin()));
+    CORRADE_COMPARE(static_cast<const void*>(cbc.begin()), static_cast<const void*>(cac.begin()));
 
-    CORRADE_COMPARE(reinterpret_cast<void*>(d.begin()), reinterpret_cast<void*>(a.begin()));
-    CORRADE_COMPARE(reinterpret_cast<const void*>(cd.begin()), reinterpret_cast<const void*>(ca.begin()));
-    CORRADE_COMPARE(reinterpret_cast<const void*>(dc.begin()), reinterpret_cast<const void*>(ac.begin()));
-    CORRADE_COMPARE(reinterpret_cast<const void*>(cdc.begin()), reinterpret_cast<const void*>(cac.begin()));
+    CORRADE_COMPARE(static_cast<void*>(d.begin()), static_cast<void*>(a.begin()));
+    CORRADE_COMPARE(static_cast<const void*>(cd.begin()), static_cast<const void*>(ca.begin()));
+    CORRADE_COMPARE(static_cast<const void*>(dc.begin()), static_cast<const void*>(ac.begin()));
+    CORRADE_COMPARE(static_cast<const void*>(cdc.begin()), static_cast<const void*>(cac.begin()));
 
     CORRADE_COMPARE(a.size(), 6);
     CORRADE_COMPARE(ca.size(), 6);
@@ -776,6 +868,63 @@ void ArrayTest::size() {
     Array a{3};
 
     CORRADE_COMPARE(Containers::arraySize(a), 3);
+}
+
+void ArrayTest::emplaceConstructorExplicitInCopyInitialization() {
+    /* See constructHelpers.h for details about this compiler-specific issue */
+    struct ExplicitDefault {
+        explicit ExplicitDefault() = default;
+    };
+
+    struct ContainingExplicitDefaultWithImplicitConstructor {
+        ExplicitDefault a;
+    };
+
+    /* This alone works */
+    ContainingExplicitDefaultWithImplicitConstructor a;
+    static_cast<void>(a);
+
+    /* So this should too */
+    Containers::Array<ContainingExplicitDefaultWithImplicitConstructor> b{DirectInit, 5};
+    CORRADE_COMPARE(b.size(), 5);
+}
+
+void ArrayTest::copyConstructPlainStruct() {
+    struct ExtremelyTrivial {
+        int a;
+        char b;
+    };
+
+    /* This needs special handling on GCC 4.8, where T{b} (copy-construction)
+       attempts to convert ExtremelyTrivial to int to initialize the first
+       argument and fails miserably. */
+    Containers::Array<ExtremelyTrivial> a{DirectInit, 2, 3, 'a'};
+    CORRADE_COMPARE(a.size(), 2);
+
+    /* This copy-constructs the new values */
+    Containers::Array<ExtremelyTrivial> b{InPlaceInit, {
+        {4, 'b'},
+        {5, 'c'},
+        {6, 'd'}
+    }};
+    CORRADE_COMPARE(b.size(), 3);
+}
+
+void ArrayTest::moveConstructPlainStruct() {
+    struct MoveOnlyStruct {
+        int a;
+        char c;
+        Array b;
+    };
+
+    /* This needs special handling on GCC 4.8, where T{std::move(b)} attempts
+       to convert MoveOnlyStruct to int to initialize the first argument and
+       fails miserably. */
+    Containers::Array<MoveOnlyStruct> a{DirectInit, 2, 3, 'a', nullptr};
+    CORRADE_COMPARE(a.size(), 2);
+
+    /* Unlike with copyConstructPlainStruct(), the InPlaceInit doesn't use
+       move-construction, so that's not affected */
 }
 
 }}}}

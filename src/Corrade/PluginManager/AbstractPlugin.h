@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -89,10 +89,16 @@ class CORRADE_PLUGINMANAGER_EXPORT AbstractPlugin {
          * Plugins implementing given interface have to define exactly the same
          * interface string, otherwise they won't be loaded. This can be used
          * to ensure the interface and plugin is correctly paired even in case
-         * where there is no ABI mismatch A good practice is to use a "Java
-         * package name"-style syntax. The interface name should also contain
-         * version identifier to make sure the plugin will not be loaded with
-         * incompatible interface version.
+         * where there is no ABI mismatch. A good practice is to use a "Java
+         * package name"-style syntax, for example
+         * @cpp "cz.mosra.corrade.PluginManager.Test.AbstractFood/1.0" @ce. The
+         * interface name should also contain version identifier to make sure
+         * the plugin will not be loaded with incompatible interface version.
+         *
+         * The default implementation returns an empty string, which is
+         * technically valid, but note that keeping it empty will inhibit
+         * various sanity checks when loading dynamic plugins, leading to
+         * crashes and security issues.
          */
         static std::string pluginInterface();
 
@@ -103,14 +109,66 @@ class CORRADE_PLUGINMANAGER_EXPORT AbstractPlugin {
          * List of hardcoded absolute or relative paths where to search for
          * plugins of given interface. Relative paths are relative to
          * @ref Utility::Directory::executableLocation() directory. Earlier
-         * entries have more priority than later, search stops once an existing
-         * directory is found. By default this function returns an empty list.
-         * See also @ref PluginManager-Manager-paths for more information.
+         * entries have more priority than later, search stops once a directory
+         * that exists is found. By default this function returns an empty
+         * list, you can use the convenience @ref implicitPluginSearchPaths()
+         * helper for a consistent behavior on all platforms. See also
+         * @ref PluginManager-Manager-paths for more information.
          * @partialsupport Not available on platforms without
          *      @ref CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT "dynamic plugin support".
          */
         static std::vector<std::string> pluginSearchPaths();
+
+        /**
+         * @brief Plugin binary suffix
+         * @m_since{2020,06}
+         *
+         * Used for discovering plugins on the filesystem. By default set to
+         * platform's native extension for dynamic modules such as
+         * @cpp ".dll" @ce or @cpp ".so" @ce, override this function in your
+         * plugin interface if you want a different suffix. On CMake side you
+         * can override the suffix by setting the `SUFFIX` property, for
+         * example:
+         *
+         * @code{.cmake}
+         * set_target_properties(MyPlugin PROPERTIES SUFFIX .mod)
+         * @endcode
+         *
+         * @partialsupport Not available on platforms without
+         *      @ref CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT "dynamic plugin support".
+         *
+         * @see @ref pluginMetadataSuffix()
+         */
+        static std::string pluginSuffix();
         #endif
+
+        /**
+         * @brief Plugin metadata file suffix
+         * @m_since{2020,06}
+         *
+         * Suffix for plugin-specific metadata files. By default set to
+         * @cpp ".conf" @ce. If non-empty, the plugin manager will expect the
+         * files to exist on the filesystem when loading dynamic plugins, and
+         * static plugins have them bundled into the library. If empty, no
+         * plugin-specific metadata file will be loaded (and thus it's also not
+         * possible to specify inter-plugin dependencies and other properties).
+         * On CMake side the metadata file passed to
+         * @ref corrade-cmake-add-plugin "corrade_add_plugin()" or
+         * @ref corrade-cmake-add-static-plugin "corrade_add_static_plugin()"
+         * is expected to have the same extension or be set to @cpp "" @ce when
+         * metadata are not used, for example:
+         *
+         * @code{.cmake}
+         * corrade_add_plugin(MyPlugin
+         *     ${MYPLUGINS_DEBUG_INSTALL_DIR}
+         *     ${MYPLUGINS_RELEASE_INSTALL_DIR}
+         *     MyPlugin.modconf # or "" when metadata not used
+         *     MyPlugin.cpp)
+         * @endcode
+         *
+         * @see @ref pluginSuffix()
+         */
+        static std::string pluginMetadataSuffix();
 
         /**
          * @brief Initialize plugin
@@ -176,8 +234,16 @@ class CORRADE_PLUGINMANAGER_EXPORT AbstractPlugin {
         /** @brief Copying is not allowed */
         AbstractPlugin(const AbstractPlugin&) = delete;
 
-        /** @brief Moving is not allowed */
-        AbstractPlugin(AbstractPlugin&&) = delete;
+        /**
+         * @brief Move constructor
+         *
+         * In order to avoid unnecessary allocations of internal state, the
+         * move is destructive, which means none of @ref plugin(),
+         * @ref metadata(), @ref configuration() or
+         * @ref AbstractManagingPlugin::manager() can be called on a moved-out
+         * instance.
+         */
+        AbstractPlugin(AbstractPlugin&& other) noexcept;
 
         /**
          * @brief Destructor
@@ -191,7 +257,7 @@ class CORRADE_PLUGINMANAGER_EXPORT AbstractPlugin {
         /** @brief Copying is not allowed */
         AbstractPlugin& operator=(const AbstractPlugin&) = delete;
 
-        /** @brief Moving is not allowed */
+        /** @brief Only move construction is allowed */
         AbstractPlugin& operator=(AbstractPlugin&&) = delete;
 
         /**
@@ -212,6 +278,8 @@ class CORRADE_PLUGINMANAGER_EXPORT AbstractPlugin {
          * or an alias. If the plugin was not instantiated via plugin manager,
          * returns empty string. Use @cpp metadata()->name() @ce to get plugin
          * true name unconditionally.
+         *
+         * Can't be called on a moved-out instance.
          */
         const std::string& plugin() const;
 
@@ -220,6 +288,8 @@ class CORRADE_PLUGINMANAGER_EXPORT AbstractPlugin {
          *
          * Metadata associated with given plugin. If the plugin was not
          * instantiated through a plugin manager, returns @cpp nullptr @ce.
+         *
+         * Can't be called on a moved-out instance.
          * @see @ref AbstractManager::metadata()
          */
         const PluginMetadata* metadata() const;
@@ -234,6 +304,8 @@ class CORRADE_PLUGINMANAGER_EXPORT AbstractPlugin {
          * only particular plugin instance. If the plugin was not instantiated
          * through a plugin manager or the @cb{.ini} [configuration] @ce
          * group was not present in the metadata, the returned group is empty.
+         *
+         * Can't be called on a moved-out instance.
          */
         Utility::ConfigurationGroup& configuration();
         const Utility::ConfigurationGroup& configuration() const; /**< @overload */
@@ -247,6 +319,70 @@ class CORRADE_PLUGINMANAGER_EXPORT AbstractPlugin {
         struct State;
         Containers::Pointer<State> _state;
 };
+
+#ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
+/**
+@brief Implicit plugin search paths
+@param libraryLocation  Absolute location of a dynamic library containing the
+    plugin interface. Should be empty when the library is static or the plugin
+    interface is defined directly inside an executable. Use
+    @ref Utility::Directory::libraryLocation() to retrieve the location.
+@param hardcodedPath    Hardcoded path where to search for plugins. It's
+    recommended to propagate this value from the buildsystem, keeping it empty
+    by default.
+@param relativePath     A path where plugins are stored, relative to a usual
+    library location
+@m_since{2020,06}
+
+Meant to be used to implement @ref AbstractPlugin::pluginSearchPaths().
+Produces a list of search paths in this order:
+
+1.  @p hardcodedPath, if not empty, for example
+    @cpp "/usr/lib64/magnum/imageconverters" @ce. This is meant to act as a
+    last-hope override when everything else fails and unless there's a good
+    reason to do so (like the ones listed below), it should be empty. Supplying
+    an absolute path even when not needed may result in self-contained apps
+    picking up system-wide plugins by accident, causing all sorts of ABI
+    issues. The path can be relative as well, in which case the plugin manager
+    joins path of @ref Utility::Directory::executableLocation() with it.
+2.  @cpp "../PlugIns" @ce joined with @p relativePath, if the system is macOS
+    or iOS. Since it's a relative location, the plugin manager joins path of
+    @ref Utility::Directory::executableLocation() with it. This is meant for
+    bundles, where the main executable is expected to be stored in the `MacOS`
+    directory and plugins in the `PlugIns` directory (note the capitalization).
+    [Apple docs for reference.](https://developer.apple.com/library/archive/documentation/CoreFoundation/Conceptual/CFBundles/BundleTypes/BundleTypes.html#//apple_ref/doc/uid/10000123i-CH101-SW3)
+3.  The path of @p libraryLocation joined with @p relativePath, if
+    @p libraryLocation is not empty. This will work for most cases of a dynamic
+    system-wide install. For example with @p libraryLocation set to
+    @cpp "/usr/lib/MagnumTrade.so" @ce and @p relativePath to
+    @cpp "magnum/imageconverters" @ce, it'll result in
+    @cpp "/usr/lib/magnum/imageconverters" @ce added to the search path. If
+    a correct library location can't be detected reliably (for example due to
+    symlinks), you to use @p hardcodedPath. This is done *after* the
+    `PluginIns` path on Apple in order to make it possible for a bundle to ship
+    and use its own plugins even if it may rely on system-installed libraries.
+4.  @cpp "../lib" @ce joined with @p relativePath, unless the system is
+    Windows (because there plugin DLLs are not in a `lib` directory but next to
+    the executable in `bin` instead). Since it's a relative location, the
+    plugin manager joins path of @ref Utility::Directory::executableLocation()
+    with it. This will work for most cases of a static system-wide install. For
+    example with executable location being @cpp "/usr/bin/magnum-player" @ce
+    and @p relativePath set to @cpp "magnum/imageconverters" @ce, it'll result
+    in @cpp "/usr/lib/magnum/imageconverters" @ce added to the search path. If
+    the system has the library dir `lib64`, `lib/64/` or similar and there's
+    no symlink that would make the above work, you need use @p hardcodedPath.
+5.  @p relativePath alone, for example @cpp "magnum/imageconverters" @ce.
+    Again, since it's a relative location, the plugin manager joins path of
+    @ref Utility::Directory::executableLocation() with it. This will work for
+    Windows and all relocatable installs, as it simply looks for the plugins
+    next to the executable.
+
+See also @ref PluginManager-Manager-paths for more information.
+@partialsupport Not available on platforms without
+    @ref CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT "dynamic plugin support".
+*/
+CORRADE_PLUGINMANAGER_EXPORT std::vector<std::string> implicitPluginSearchPaths(const std::string& libraryLocation, const std::string& hardcodedPath, const char* relativePath);
+#endif
 
 }}
 

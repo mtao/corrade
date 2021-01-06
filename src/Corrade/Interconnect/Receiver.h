@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -37,9 +37,7 @@
 
 namespace Corrade { namespace Interconnect {
 
-namespace Implementation {
-    class AbstractConnectionData;
-}
+namespace Implementation { struct ReceiverConnection; }
 
 /**
 @brief Receiver object
@@ -70,9 +68,7 @@ class CORRADE_INTERCONNECT_EXPORT Receiver {
          * @see @ref Emitter::hasSignalConnections(),
          *      @ref slotConnectionCount()
          */
-        bool hasSlotConnections() const {
-            return !_connections.empty();
-        }
+        bool hasSlotConnections() const;
 
         /**
          * @brief Count of connections to this receiver slots
@@ -80,7 +76,7 @@ class CORRADE_INTERCONNECT_EXPORT Receiver {
          * @see @ref Emitter::signalConnectionCount(),
          *      @ref hasSlotConnections()
          */
-        std::size_t slotConnectionCount() const { return _connections.size(); }
+        std::size_t slotConnectionCount() const;
 
         /**
          * @brief Disconnect everything from this receiver slots
@@ -99,11 +95,11 @@ class CORRADE_INTERCONNECT_EXPORT Receiver {
     private:
         /* https://bugzilla.gnome.org/show_bug.cgi?id=776986 */
         #ifndef DOXYGEN_GENERATING_OUTPUT
-        friend Implementation::AbstractConnectionData;
+        friend Implementation::ConnectionData;
         friend Emitter;
         #endif
 
-        std::vector<Implementation::AbstractConnectionData*> _connections;
+        std::vector<Implementation::ReceiverConnection> _connections;
 };
 
 }}

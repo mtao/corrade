@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -46,6 +46,10 @@ AssertGracefulTest::AssertGracefulTest() {
 }
 
 void AssertGracefulTest::test() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test graceful assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectError{&out};
 
@@ -57,17 +61,24 @@ void AssertGracefulTest::test() {
     [&](){ CORRADE_ASSERT_OUTPUT(foo(), "foo() should succeed", ); }();
     int c = [&](){ CORRADE_ASSERT_OUTPUT(foo(), "foo() should succeed!", 7); return 3; }();
 
-    /* CORRADE_INTERNAL_ASSERT(), CORRADE_INTERNAL_ASSERT_OUTPUT() and
-       CORRADE_ASSERT_UNREACHABLE() do not have a graceful version */
+    [&](){ if(c != 3) CORRADE_ASSERT_UNREACHABLE("C should be 3", ); }();
+    int d = [&](){ if(a) CORRADE_ASSERT_UNREACHABLE("C should be 3!", 7); return 3; }();
+
+    /* CORRADE_INTERNAL_ASSERT(), CORRADE_INTERNAL_ASSERT_OUTPUT(),
+       CORRADE_INTERNAL_ASSERT_EXPRESSION() and
+       CORRADE_INTERNAL_ASSERT_UNREACHABLE() do not have a graceful version */
 
     CORRADE_COMPARE(a, 7);
     CORRADE_COMPARE(b, 7);
     CORRADE_COMPARE(c, 7);
+    CORRADE_COMPARE(d, 7);
     CORRADE_COMPARE(out.str(),
         "A should be zero\n"
         "A should be zero!\n"
         "foo() should succeed\n"
-        "foo() should succeed!\n");
+        "foo() should succeed!\n"
+        "C should be 3\n"
+        "C should be 3!\n");
 }
 
 constexpr int divide(int a, int b) {
@@ -75,6 +86,10 @@ constexpr int divide(int a, int b) {
 }
 
 void AssertGracefulTest::constexprTest() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test graceful assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectError{&out};
 

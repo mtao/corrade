@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -165,6 +165,10 @@ void LinkedListTest::insert() {
 }
 
 void LinkedListTest::insertFromOtherList() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::stringstream out;
     Error redirectError{&out};
 
@@ -178,6 +182,10 @@ void LinkedListTest::insertFromOtherList() {
 }
 
 void LinkedListTest::insertBeforeFromOtherList() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::stringstream out;
     Error redirectError{&out};
 
@@ -192,6 +200,10 @@ void LinkedListTest::insertBeforeFromOtherList() {
 }
 
 void LinkedListTest::cutFromOtherList() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::stringstream out;
     Error redirectError{&out};
 
@@ -490,7 +502,7 @@ void LinkedListTest::overrideEraseVirtual() {
     };
     struct NonErasingItem: NonErasingItemBase {
         /* This shouldn't get called, doErase() should */
-        CORRADE_UNUSED void erase() { CORRADE_ASSERT_UNREACHABLE(); }
+        CORRADE_UNUSED void erase() { CORRADE_INTERNAL_ASSERT_UNREACHABLE(); }
     };
 
     /* Have the items initialized before the list so we test that the list

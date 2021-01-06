@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 */
 
 /** @file
- * @brief Macro @ref CORRADE_DEPRECATED(), @ref CORRADE_DEPRECATED_ALIAS(), @ref CORRADE_DEPRECATED_NAMESPACE(), @ref CORRADE_DEPRECATED_ENUM(), @ref CORRADE_DEPRECATED_FILE(), @ref CORRADE_DEPRECATED_MACRO(), @ref CORRADE_IGNORE_DEPRECATED_PUSH, @ref CORRADE_IGNORE_DEPRECATED_POP, @ref CORRADE_UNUSED, @ref CORRADE_ALIGNAS(), @ref CORRADE_AUTOMATIC_INITIALIZER(), @ref CORRADE_AUTOMATIC_FINALIZER()
+ * @brief Macro @ref CORRADE_DEPRECATED(), @ref CORRADE_DEPRECATED_ALIAS(), @ref CORRADE_DEPRECATED_NAMESPACE(), @ref CORRADE_DEPRECATED_ENUM(), @ref CORRADE_DEPRECATED_FILE(), @ref CORRADE_DEPRECATED_MACRO(), @ref CORRADE_IGNORE_DEPRECATED_PUSH, @ref CORRADE_IGNORE_DEPRECATED_POP, @ref CORRADE_UNUSED, @ref CORRADE_ALIGNAS(), @ref CORRADE_NORETURN, @ref CORRADE_FALLTHROUGH, @ref CORRADE_THREAD_LOCAL, @ref CORRADE_CONSTEXPR14, @ref CORRADE_ALWAYS_INLINE, @ref CORRADE_NEVER_INLINE, @ref CORRADE_FUNCTION, @ref CORRADE_LINE_STRING, @ref CORRADE_AUTOMATIC_INITIALIZER(), @ref CORRADE_AUTOMATIC_FINALIZER()
  */
 
 #include "Corrade/configure.h"
@@ -36,7 +36,23 @@
 #define _CORRADE_HELPER_PASTE2(a, b) a ## b
 #define _CORRADE_HELPER_PASTE(a, b) _CORRADE_HELPER_PASTE2(a, b)
 #define _CORRADE_HELPER_STR(x) #x
+
+/* Deferred macro expansion doesn't work on MSVC and instead of causing an
+   error it only emits a warning like
+    warning C4003: not enough arguments for function-like macro invocation '_str2'
+   which is REALLY GREAT for debugging. In 2018 they promised the preprocessor
+   will get an overhaul and there's an /experimental:preprocessor flag but
+   doing that on a library level is pure insanity so I'm instead disabling
+   this macro on MSVC altogether to avoid it accidental uses and suffering
+   https://devblogs.microsoft.com/cppblog/msvc-preprocessor-progress-towards-conformance/ */
+#if !defined(CORRADE_TARGET_MSVC) || defined(CORRADE_TARGET_CLANG_CL)
 #define _CORRADE_HELPER_DEFER(m, ...) m(__VA_ARGS__)
+#endif
+/* On the other hand, THE ONLY place where _CORRADE_HELPER_DEFER() worked on
+   MSVC is in CORRADE_LINE_STRING. Provide a specialized macro for that
+   instead. */
+#define _CORRADE_LINE_STRING_IMPLEMENTATION(...) _CORRADE_HELPER_STR(__VA_ARGS__)
+
 #endif
 
 /** @hideinitializer
@@ -95,7 +111,7 @@ will not.
 @brief Namespace deprecation mark
 
 Marked enum or enum value will emit deprecation warning on supported compilers
-(C++17 feature, MSVC and Clang):
+(C++17 feature, MSVC and Clang, GCC 10+):
 
 @snippet Utility.cpp CORRADE_DEPRECATED_NAMESPACE
 
@@ -123,7 +139,7 @@ such namespace is used --- which is practically useless
 #else
 #define CORRADE_DEPRECATED_NAMESPACE(message) _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wc++14-extensions\"") _Pragma("GCC diagnostic ignored \"-Wc++17-extensions\"") [[deprecated(message)]] _Pragma("GCC diagnostic pop")
 #endif
-#elif defined(_MSC_VER)
+#elif defined(CORRADE_TARGET_MSVC) || (defined(CORRADE_TARGET_GCC) && __GNUC__ >= 10)
 #define CORRADE_DEPRECATED_NAMESPACE(message) [[deprecated(message)]]
 #else
 #define CORRADE_DEPRECATED_NAMESPACE(message)
@@ -270,12 +286,33 @@ function parameters instead.
 
 @snippet Utility.cpp CORRADE_UNUSED
 */
-#if defined(__GNUC__)
+/* clang-cl doesn't understand MSVC warning numbers right now, so the
+   MSVC-specific variant below doesn't work */
+#if defined(CORRADE_TARGET_GCC) || defined(CORRADE_TARGET_CLANG_CL)
 #define CORRADE_UNUSED __attribute__((__unused__))
-#elif defined(_MSC_VER)
+#elif defined(CORRADE_TARGET_MSVC)
 #define CORRADE_UNUSED __pragma(warning(suppress:4100))
 #else
 #define CORRADE_UNUSED
+#endif
+
+/** @hideinitializer
+@brief Switch case fall-through
+
+Suppresses a warning about a @cpp case @ce fallthrough in a @cpp switch @ce on
+GCC >= 7 and Clang. GCC versions before 7 don't warn about the fallthrough, so
+there's no need to suppress anything; for the same reason the macro does
+nothing on MSVC. Expected to be put at a place where a @cpp break; @ce would
+usually be:
+
+@snippet Utility.cpp CORRADE_FALLTHROUGH
+*/
+#if defined(CORRADE_TARGET_GCC) && __GNUC__ >= 7
+#define CORRADE_FALLTHROUGH __attribute__((fallthrough));
+#elif defined(CORRADE_TARGET_CLANG)
+#define CORRADE_FALLTHROUGH [[clang::fallthrough]];
+#else
+#define CORRADE_FALLTHROUGH
 #endif
 
 /** @hideinitializer
@@ -307,7 +344,110 @@ otherwise falls back to compiler-specific attribute. Example usage:
 #endif
 
 /** @hideinitializer
+@brief Thread-local annotation
+@m_since{2019,10}
+
+Expands to C++11 @cpp thread_local @ce keyword on all compilers except old
+Apple Clang, where it's defined as @cpp __thread @ce. Note that the
+pre-standard @cpp __thread @ce has some semantic differences, in particular
+regarding RAII.
+*/
+#ifdef __has_feature
+#if !__has_feature(cxx_thread_local) /* Apple Clang 7.3 says false here */
+#define CORRADE_THREAD_LOCAL __thread
+#endif
+#endif
+#ifndef CORRADE_THREAD_LOCAL /* Assume it's supported otherwise */
+#define CORRADE_THREAD_LOCAL thread_local
+#endif
+
+/** @hideinitializer
+@brief C++14 constexpr
+@m_since{2020,06}
+
+Expands to @cpp constexpr @ce on C++14 and newer, empty on C++11. Useful for
+selectively marking functions that make use of C++14 relaxed constexpr rules.
+@see @ref CORRADE_CXX_STANDARD
+*/
+#if CORRADE_CXX_STANDARD >= 201402
+#define CORRADE_CONSTEXPR14 constexpr
+#else
+#define CORRADE_CONSTEXPR14
+#endif
+
+/** @hideinitializer
+@brief Always inline a function
+@m_since{2019,10}
+
+Stronger than the standard @cpp inline @ce keyword where supported, but even
+then the compiler might decide to not inline the function (for example if it's
+recursive). Expands to @cpp __attribute__((always_inline)) inline @ce on GCC
+and Clang (both keywords need to be specified,
+[docs](https://gcc.gnu.org/onlinedocs/gcc-4.1.2/gcc/Function-Attributes.html)),
+to @cpp __forceinline @ce on MSVC ([docs](https://docs.microsoft.com/en-us/cpp/cpp/inline-functions-cpp))
+and to just @cpp inline @ce elsewhere. On GCC and Clang this makes the function
+inline also in Debug mode (`-g`), while on MSVC compiling in Debug (`/Ob0`)
+always suppresses all inlining. Example usage:
+
+@snippet Utility.cpp CORRADE_ALWAYS_INLINE
+
+@see @ref CORRADE_NEVER_INLINE
+*/
+#ifdef __GNUC__
+#define CORRADE_ALWAYS_INLINE __attribute__((always_inline)) inline
+#elif defined(_MSC_VER)
+#define CORRADE_ALWAYS_INLINE __forceinline
+#else
+#define CORRADE_ALWAYS_INLINE inline
+#endif
+
+/** @hideinitializer
+@brief Never inline a function
+@m_since{2019,10}
+
+Prevents the compiler from inlining a function during an optimization pass.
+Expands to @cpp __attribute__((noinline)) @ce on GCC and Clang
+([docs](https://gcc.gnu.org/onlinedocs/gcc-4.1.2/gcc/Function-Attributes.html)),
+to @cpp __declspec(noinline) @ce on MSVC
+([docs](https://docs.microsoft.com/en-us/cpp/cpp/noinline)) and is empty
+elsewhere. Example usage:
+
+@snippet Utility.cpp CORRADE_NEVER_INLINE
+
+@see @ref CORRADE_ALWAYS_INLINE
+*/
+#ifdef __GNUC__
+#define CORRADE_NEVER_INLINE __attribute__((noinline))
+#elif defined(_MSC_VER)
+#define CORRADE_NEVER_INLINE __declspec(noinline)
+#else
+#define CORRADE_NEVER_INLINE
+#endif
+
+/** @hideinitializer
+@brief Function name
+@m_since{2019,10}
+
+Gives out an undecorated function name. Equivalent to the standard C++11
+@cpp __func__ @ce on all sane platforms and to @cpp __FUNCTION__ @ce on
+@ref CORRADE_TARGET_ANDROID "Android", because it just *has to be different*.
+
+Note that the function name is *not* a string literal, meaning it can't be
+concatenated with other string literals like @cpp __FILE__ @ce or
+@ref CORRADE_LINE_STRING. Details [in this Stack Overflow answer](https://stackoverflow.com/a/18301370).
+*/
+#ifndef CORRADE_TARGET_ANDROID
+#define CORRADE_FUNCTION __func__
+#else
+/* C++11 standard __func__ on Android behaves like GCC's __PRETTY_FUNCTION__,
+   while GCC's __FUNCTION__ does the right thing.. I wonder -- do they have
+   *any* tests for libc at all?! */
+#define CORRADE_FUNCTION __FUNCTION__
+#endif
+
+/** @hideinitializer
 @brief Line number as a string
+@m_since{2019,10}
 
 Turns the standard @cpp __LINE__ @ce macro into a string. Useful for example
 to have correct line numbers when embedding GLSL shaders directly in the code:
@@ -328,8 +468,20 @@ instead of showing the line number relatively as @cb{.shell-session} 1:5(4) @ce.
 Note that GLSL in particular, unlike C, interprets the @cpp #line @ce statement
 as applying to the immediately following line, which is why the extra
 @cpp "\n" @ce is needed.
+
+@see @ref CORRADE_FUNCTION
 */
-#define CORRADE_LINE_STRING _CORRADE_HELPER_DEFER(_CORRADE_HELPER_STR, __LINE__)
+#define CORRADE_LINE_STRING _CORRADE_LINE_STRING_IMPLEMENTATION(__LINE__)
+
+/** @hideinitializer
+@brief No-op
+@m_since{2019,10}
+
+Eats all arguments passed to it. Useful on compilers that don't support
+defining function macros on command line --- for example,
+@cpp -DA_MACRO=CORRADE_NOOP @ce is the same as doing @cpp -D'A_MACRO(arg)=' @ce.
+*/
+#define CORRADE_NOOP(...)
 
 /** @hideinitializer
 @brief Automatic initializer
@@ -338,28 +490,46 @@ as applying to the immediately following line, which is why the extra
 Function passed as argument will be called even before entering @cpp main() @ce
 function. This is usable when e.g. automatically registering plugins or data
 resources without forcing the user to write additional code in @cpp main() @ce.
-@attention This macro does nothing in static libraries.
+
+@attention This macro does nothing in static libraries --- the global data
+    defined by it (which cause the initialization) are thrown away by the
+    linker as unused.
+
+It's possible to override this macro for testing purposes or when global
+constructors are not desired. For a portable way to defining the macro out on
+compiler command line, see @ref CORRADE_NOOP().
 */
+#ifndef CORRADE_AUTOMATIC_INITIALIZER
 #define CORRADE_AUTOMATIC_INITIALIZER(function)                             \
     namespace {                                                             \
         struct Initializer_##function { static const int i; };              \
         const int Initializer_##function::i = function();                   \
     }
+#endif
 
 /** @hideinitializer
-@brief Automatic initializer
+@brief Automatic finalizer
 @param function Finalizer function name of type @cpp int(*)() @ce.
 
-Function passed as argument will be called even before entering @cpp main() @ce
+Function passed as argument will be called after exiting the @cpp main() @ce
 function. This is usable in conjuction with @ref CORRADE_AUTOMATIC_INITIALIZER()
 when there is need to properly discard initialized data.
-@attention This macro does nothing in static libraries.
+
+@attention This macro does nothing in static libraries --- the global data
+    defined by it (which cause the finalization) are thrown away by the
+    linker as unused.
+
+It's possible to override this macro for testing purposes or when global
+destructors are not desired. For a portable way to defining the macro out on
+compiler command line, see @ref CORRADE_NOOP().
 */
+#ifndef CORRADE_AUTOMATIC_FINALIZER
 #define CORRADE_AUTOMATIC_FINALIZER(function)                               \
     class Finalizer_##function {                                            \
         public:                                                             \
             Finalizer_##function() {}                                       \
             ~Finalizer_##function() { function(); }                         \
     } Finalizer_##function;
+#endif
 
 #endif

@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -28,6 +28,10 @@
 #include <cctype>
 #include <cstring>
 #include <algorithm>
+
+#include "Corrade/Containers/GrowableArray.h"
+#include "Corrade/Containers/StaticArray.h"
+#include "Corrade/Containers/StringStl.h"
 
 namespace Corrade { namespace Utility { namespace String {
 
@@ -61,33 +65,56 @@ std::string trim(std::string string, const Containers::ArrayView<const char> cha
     return string;
 }
 
-std::vector<std::string> splitWithoutEmptyParts(const std::string& string, const Containers::ArrayView<const char> delimiters) {
-    std::vector<std::string> parts;
-    std::size_t oldpos = 0, pos = std::string::npos;
+std::string join(const std::vector<std::string>& strings, const Containers::ArrayView<const char> delimiter) {
+    /* Compute size of the resulting string, count also delimiters */
+    std::size_t size = 0;
+    for(const auto& s: strings) size += s.size() + delimiter.size();
+    if(size) size -= delimiter.size();
 
-    while((pos = string.find_first_of(delimiters, oldpos, delimiters.size())) != std::string::npos) {
-        if(pos != oldpos)
-            parts.push_back(string.substr(oldpos, pos-oldpos));
+    /* Reserve memory for the resulting string */
+    std::string result;
+    result.reserve(size);
 
-        oldpos = pos+1;
+    /* Join strings */
+    for(const auto& s: strings) {
+        result += s;
+        if(result.size() != size) result.append(delimiter, delimiter.size());
     }
 
-    if(!string.empty() && (oldpos < string.size()))
-        parts.push_back(string.substr(oldpos));
+    return result;
+}
 
-    return parts;
+std::string joinWithoutEmptyParts(const std::vector<std::string>& strings, const Containers::ArrayView<const char> delimiter) {
+    /* Compute size of the resulting string, count also delimiters */
+    std::size_t size = 0;
+    for(const auto& s: strings) if(!s.empty()) size += s.size() + delimiter.size();
+    if(size) size -= delimiter.size();
+
+    /* Reserve memory for the resulting string */
+    std::string result;
+    result.reserve(size);
+
+    /* Join strings */
+    for(const auto& s: strings) {
+        if(s.empty()) continue;
+
+        result += s;
+        if(result.size() != size) result.append(delimiter, delimiter.size());
+    }
+
+    return result;
 }
 
 bool beginsWith(Containers::ArrayView<const char> string, const Containers::ArrayView<const char> prefix) {
-    if(string.size() < prefix.size()) return false;
-
-    return std::strncmp(string, prefix, prefix.size()) == 0;
+    /* This is soon meant to be deprecated so all the ugly conversions don't
+       bother me too much */
+    return Containers::StringView{string}.hasPrefix(Containers::StringView{prefix});
 }
 
 bool endsWith(Containers::ArrayView<const char> string, const Containers::ArrayView<const char> suffix) {
-    if(string.size() < suffix.size()) return false;
-
-    return std::strncmp(string + string.size() - suffix.size(), suffix, suffix.size()) == 0;
+    /* This is soon meant to be deprecated so all the ugly conversions don't
+       bother me too much */
+    return Containers::StringView{string}.hasSuffix(Containers::StringView{suffix});
 }
 
 std::string stripPrefix(std::string string, const Containers::ArrayView<const char> prefix) {
@@ -124,7 +151,8 @@ std::string replaceAll(std::string string, const Containers::ArrayView<const cha
 }
 
 namespace {
-    constexpr const char Whitespace[] = " \t\f\v\r\n";
+    using namespace Containers::Literals;
+    constexpr Containers::StringView Whitespace = " \t\f\v\r\n"_s;
 }
 
 std::string ltrim(std::string string) { return ltrim(std::move(string), Whitespace); }
@@ -139,80 +167,88 @@ void rtrimInPlace(std::string& string) { rtrimInPlace(string, Whitespace); }
 
 void trimInPlace(std::string& string) { trimInPlace(string, Whitespace); }
 
-std::vector<std::string> splitWithoutEmptyParts(const std::string& string) {
-    return splitWithoutEmptyParts(string, Whitespace);
+#ifdef CORRADE_BUILD_DEPRECATED
+Containers::Array<Containers::StringView> split(const Containers::StringView string, const char delimiter) {
+    return string.split(delimiter);
 }
 
+Containers::Array<Containers::StringView> splitWithoutEmptyParts(const Containers::StringView string, const char delimiter) {
+    return string.splitWithoutEmptyParts(delimiter);
+}
+
+Containers::Array<Containers::StringView> splitWithoutEmptyParts(const Containers::StringView string, const Containers::StringView delimiters) {
+    return string.splitWithoutEmptyParts(delimiters);
+}
+
+Containers::Array<Containers::StringView> splitWithoutEmptyParts(const Containers::StringView string) {
+    return string.splitWithoutEmptyParts();
+}
+#endif
+
 std::vector<std::string> split(const std::string& string, const char delimiter) {
-    std::vector<std::string> parts;
-    std::size_t oldpos = 0, pos = std::string::npos;
-
-    while((pos = string.find(delimiter, oldpos)) != std::string::npos) {
-        parts.push_back(string.substr(oldpos, pos-oldpos));
-        oldpos = pos+1;
-    }
-
-    if(!string.empty())
-        parts.push_back(string.substr(oldpos));
-
-    return parts;
+    /* IDGAF that this has one extra allocation due to the Array being copied
+       to a std::vector, the owning std::string instances are much worse */
+    Containers::Array<Containers::StringView> parts = Containers::StringView{string}.split(delimiter);
+    return std::vector<std::string>{parts.begin(), parts.end()};
 }
 
 std::vector<std::string> splitWithoutEmptyParts(const std::string& string, const char delimiter) {
-    std::vector<std::string> parts;
-    std::size_t oldpos = 0, pos = std::string::npos;
-
-    while((pos = string.find(delimiter, oldpos)) != std::string::npos) {
-        if(pos != oldpos)
-            parts.push_back(string.substr(oldpos, pos-oldpos));
-
-        oldpos = pos+1;
-    }
-
-    if(!string.empty() && (oldpos < string.size()))
-        parts.push_back(string.substr(oldpos));
-
-    return parts;
+    /* IDGAF that this has one extra allocation due to the Array being copied
+       to a std::vector, the owning std::string instances are much worse */
+    Containers::Array<Containers::StringView> parts = Containers::StringView{string}.splitWithoutEmptyParts(delimiter);
+    return std::vector<std::string>{parts.begin(), parts.end()};
 }
 
-std::string join(const std::vector<std::string>& strings, const char delimiter) {
-    /* Compute size of resulting string, count also delimiters */
-    std::size_t size = 0;
-    for(const auto& s: strings) size += s.size() + 1;
-    if(size) --size;
-
-    /* Reserve memory for resulting string */
-    std::string result;
-    result.reserve(size);
-
-    /* Join strings */
-    for(const auto& s: strings) {
-        result += s;
-        if(result.size() != size) result += delimiter;
-    }
-
-    return result;
+std::vector<std::string> splitWithoutEmptyParts(const std::string& string, const std::string& delimiters) {
+    /* IDGAF that this has one extra allocation due to the Array being copied
+       to a std::vector, the owning std::string instances are much worse */
+    Containers::Array<Containers::StringView> parts = Containers::StringView{string}.splitWithoutEmptyParts(delimiters);
+    return std::vector<std::string>{parts.begin(), parts.end()};
 }
 
-std::string joinWithoutEmptyParts(const std::vector<std::string>& strings, const char delimiter) {
-    /* Compute size of resulting string, count also delimiters */
-    std::size_t size = 0;
-    for(const auto& s: strings) if(!s.empty()) size += s.size() + 1;
-    if(size) --size;
+std::vector<std::string> splitWithoutEmptyParts(const std::string& string) {
+    /* IDGAF that this has one extra allocation due to the Array being copied
+       to a std::vector, the owning std::string instances are much worse */
+    Containers::Array<Containers::StringView> parts = Containers::StringView{string}.splitWithoutEmptyParts();
+    return std::vector<std::string>{parts.begin(), parts.end()};
+}
 
-    /* Reserve memory for resulting string */
-    std::string result;
-    result.reserve(size);
+namespace {
 
-    /* Join strings */
-    for(const auto& s: strings) {
-        if(s.empty()) continue;
+Containers::StaticArray<3, std::string> partitionInternal(const std::string& string, Containers::ArrayView<const char> separator) {
+    const std::size_t pos = string.find(separator, 0, separator.size());
+    return {
+        string.substr(0, pos),
+        pos == std::string::npos ? std::string{} : string.substr(pos, separator.size()),
+        pos == std::string::npos ? std::string{} : string.substr(pos + separator.size())
+    };
+}
 
-        result += s;
-        if(result.size() != size) result += delimiter;
-    }
+Containers::StaticArray<3, std::string> rpartitionInternal(const std::string& string, Containers::ArrayView<const char> separator) {
+    const std::size_t pos = string.rfind(separator, std::string::npos, separator.size());
+    return {
+        pos == std::string::npos ? std::string{} : string.substr(0, pos),
+        pos == std::string::npos ? std::string{} : string.substr(pos, separator.size()),
+        pos == std::string::npos ? string.substr(0) : string.substr(pos + separator.size())
+    };
+}
 
-    return result;
+}
+
+Containers::StaticArray<3, std::string> partition(const std::string& string, char separator) {
+    return partitionInternal(string, {&separator, 1});
+}
+
+Containers::StaticArray<3, std::string> partition(const std::string& string, const std::string& separator) {
+    return partitionInternal(string, {separator.data(), separator.size()});
+}
+
+Containers::StaticArray<3, std::string> rpartition(const std::string& string, char separator) {
+    return rpartitionInternal(string, {&separator, 1});
+}
+
+Containers::StaticArray<3, std::string> rpartition(const std::string& string, const std::string& separator) {
+    return rpartitionInternal(string, {separator.data(), separator.size()});
 }
 
 std::string lowercase(std::string string) {

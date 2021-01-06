@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -49,7 +49,13 @@ expected to be in UTF-8. Example usage:
 @snippet TestSuite.cpp Compare-FileToString
 
 See @ref TestSuite-Comparator-pseudo-types for more information.
-@see @ref Compare::File, @ref Compare::StringToFile
+
+Unlike @ref File and @ref StringToFile, this comparator *doesn't* support the
+@ref TestSuite-Tester-save-diagnostic "--save-diagnostic option", due to the
+fact that the comparison is done against a string and so producing a file isn't
+that helpful as in the other two variants.
+
+@see @ref File, @ref StringToFile
 */
 class FileToString {};
 
@@ -60,9 +66,9 @@ template<> class CORRADE_TESTSUITE_EXPORT Comparator<Compare::FileToString> {
     public:
         Comparator();
 
-        bool operator()(const std::string& filename, const std::string& expectedContents);
+        ComparisonStatusFlags operator()(const std::string& filename, const std::string& expectedContents);
 
-        void printErrorMessage(Utility::Error& e, const char* actual, const char* expected) const;
+        void printMessage(ComparisonStatusFlags flags, Utility::Debug& out, const char* actual, const char* expected) const;
 
     private:
         enum class State {

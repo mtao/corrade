@@ -5,10 +5,11 @@ a base for the [Magnum graphics engine](https://magnum.graphics/), among other
 things.
 
 [![Join the chat at https://gitter.im/mosra/magnum](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/mosra/magnum?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
-[![Build Status](https://travis-ci.org/mosra/corrade.svg?branch=master)](https://travis-ci.org/mosra/corrade)
+[![Build Status](https://circleci.com/gh/mosra/corrade.svg?style=shield)](https://circleci.com/gh/mosra/corrade)
+[![Build Status](https://travis-ci.com/mosra/corrade.svg?branch=master)](https://travis-ci.com/mosra/corrade)
 [![Build Status](https://ci.appveyor.com/api/projects/status/afjjlsgtk6jjxulp/branch/master?svg=true)](https://ci.appveyor.com/project/mosra/corrade/branch/master)
 [![Coverage Status](https://codecov.io/gh/mosra/corrade/branch/master/graph/badge.svg)](https://codecov.io/gh/mosra/corrade)
-[![Hunter Package](https://img.shields.io/badge/hunter-corrade-lightgrey.svg)](https://docs.hunter.sh/en/latest/packages/pkg/corrade.html)
+[![Hunter Package](https://img.shields.io/badge/hunter-corrade-lightgrey.svg)](https://hunter.readthedocs.io/en/latest/packages/pkg/corrade.html)
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 -   Project homepage — https://magnum.graphics/corrade/
@@ -19,7 +20,7 @@ SUPPORTED PLATFORMS
 ===================
 
 -   **Linux** and embedded Linux
--   **Windows**, **Windows RT** (Store/Phone)
+-   **Windows** with MSVC, clang-cl and MinGW, **Windows RT** (Store/Phone)
 -   **macOS**, **iOS**
 -   **Android**
 -   **Web** ([asm.js](http://asmjs.org/) or [WebAssembly](http://webassembly.org/)),

@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -65,15 +65,21 @@ namespace Test { namespace {
 struct StaticArrayTest: TestSuite::Tester {
     explicit StaticArrayTest();
 
+    void resetCounters();
+
     void construct();
-    void constructInPlace();
-    void constructInPlaceOneArgument();
+    void constructDefaultInit();
     void constructValueInit();
     void constructNoInit();
+    void constructInPlaceInit();
+    void constructInPlaceInitOneArgument();
     void constructDirectInit();
     void constructNonCopyable();
     void constructNoImplicitConstructor();
     void constructDirectReferences();
+
+    void copy();
+    void move();
 
     void convertBool();
     void convertPointer();
@@ -100,6 +106,10 @@ struct StaticArrayTest: TestSuite::Tester {
 
     void cast();
     void size();
+
+    void emplaceConstructorExplicitInCopyInitialization();
+    void copyConstructPlainStruct();
+    void moveConstructPlainStruct();
 };
 
 typedef Containers::StaticArray<5, int> StaticArray;
@@ -112,16 +122,27 @@ typedef Containers::StaticArrayView<5, const int> ConstStaticArrayView;
 
 StaticArrayTest::StaticArrayTest() {
     addTests({&StaticArrayTest::construct,
-              &StaticArrayTest::constructInPlace,
-              &StaticArrayTest::constructInPlaceOneArgument,
-              &StaticArrayTest::constructValueInit,
-              &StaticArrayTest::constructNoInit,
-              &StaticArrayTest::constructDirectInit,
-              &StaticArrayTest::constructNonCopyable,
-              &StaticArrayTest::constructNoImplicitConstructor,
-              &StaticArrayTest::constructDirectReferences,
+              &StaticArrayTest::constructDefaultInit,
+              &StaticArrayTest::constructValueInit});
 
-              &StaticArrayTest::convertBool,
+    addTests({&StaticArrayTest::constructNoInit},
+        &StaticArrayTest::resetCounters, &StaticArrayTest::resetCounters);
+
+    addTests({&StaticArrayTest::constructInPlaceInit,
+              &StaticArrayTest::constructInPlaceInitOneArgument,
+              &StaticArrayTest::constructDirectInit});
+
+    addTests({&StaticArrayTest::constructNonCopyable},
+        &StaticArrayTest::resetCounters, &StaticArrayTest::resetCounters);
+
+    addTests({&StaticArrayTest::constructNoImplicitConstructor,
+              &StaticArrayTest::constructDirectReferences});
+
+    addTests({&StaticArrayTest::copy,
+              &StaticArrayTest::move},
+        &StaticArrayTest::resetCounters, &StaticArrayTest::resetCounters);
+
+    addTests({&StaticArrayTest::convertBool,
               &StaticArrayTest::convertPointer,
               &StaticArrayTest::convertView,
               &StaticArrayTest::convertViewDerived,
@@ -145,23 +166,157 @@ StaticArrayTest::StaticArrayTest() {
               &StaticArrayTest::sliceToStaticPointer,
 
               &StaticArrayTest::cast,
-              &StaticArrayTest::size});
+              &StaticArrayTest::size,
+
+              &StaticArrayTest::emplaceConstructorExplicitInCopyInitialization,
+              &StaticArrayTest::copyConstructPlainStruct,
+              &StaticArrayTest::moveConstructPlainStruct});
 }
 
 void StaticArrayTest::construct() {
     const StaticArray a;
-    const StaticArray b{DefaultInit};
     CORRADE_VERIFY(a);
-    CORRADE_VERIFY(b);
     CORRADE_VERIFY(!a.empty());
-    CORRADE_VERIFY(!b.empty());
     CORRADE_COMPARE(a.size(), StaticArray::Size);
-    CORRADE_COMPARE(b.size(), StaticArray::Size);
     CORRADE_COMPARE(a.size(), 5);
-    CORRADE_COMPARE(b.size(), 5);
+
+    /* Values should be zero-initialized (same as ValueInit) */
+    CORRADE_COMPARE(a[0], 0);
+    CORRADE_COMPARE(a[1], 0);
+    CORRADE_COMPARE(a[2], 0);
+    CORRADE_COMPARE(a[3], 0);
+    CORRADE_COMPARE(a[4], 0);
 }
 
-void StaticArrayTest::constructInPlace() {
+void StaticArrayTest::constructDefaultInit() {
+    const StaticArray a{DefaultInit};
+    CORRADE_VERIFY(a);
+
+    /* Values are random memory */
+}
+
+void StaticArrayTest::constructValueInit() {
+    const StaticArray a{ValueInit};
+    CORRADE_VERIFY(a);
+
+    /* Values should be zero-initialized (same as the default constructor) */
+    CORRADE_COMPARE(a[0], 0);
+    CORRADE_COMPARE(a[1], 0);
+    CORRADE_COMPARE(a[2], 0);
+    CORRADE_COMPARE(a[3], 0);
+    CORRADE_COMPARE(a[4], 0);
+}
+
+struct Throwable {
+    explicit Throwable(int) {}
+    Throwable(const Throwable&) {}
+    Throwable(Throwable&&) {}
+    Throwable& operator=(const Throwable&) { return *this; }
+    Throwable& operator=(Throwable&&) { return *this; }
+};
+
+struct Copyable {
+    static int constructed;
+    static int destructed;
+    static int copied;
+    static int moved;
+
+    /*implicit*/ Copyable(int a = 0) noexcept: a{a} { ++constructed; }
+    Copyable(const Copyable& other) noexcept: a{other.a} {
+        ++constructed;
+        ++copied;
+    }
+    Copyable(Copyable&& other) noexcept: a{other.a} {
+        ++constructed;
+        ++moved;
+    }
+    ~Copyable() { ++destructed; }
+    Copyable& operator=(const Copyable& other) noexcept {
+        a = other.a;
+        ++copied;
+        return *this;
+    }
+    Copyable& operator=(Copyable&& other) noexcept {
+        a = other.a;
+        ++moved;
+        return *this;
+    }
+
+    int a;
+};
+
+int Copyable::constructed = 0;
+int Copyable::destructed = 0;
+int Copyable::copied = 0;
+int Copyable::moved = 0;
+
+struct Movable {
+    static int constructed;
+    static int destructed;
+    static int moved;
+
+    /*implicit*/ Movable(int a = 0) noexcept: a{a} { ++constructed; }
+    Movable(const Movable&) = delete;
+    Movable(Movable&& other) noexcept: a(other.a) {
+        ++constructed;
+        ++moved;
+    }
+    ~Movable() { ++destructed; }
+    Movable& operator=(const Movable&) = delete;
+    Movable& operator=(Movable&& other) noexcept {
+        a = other.a;
+        ++moved;
+        return *this;
+    }
+
+    int a;
+};
+
+int Movable::constructed = 0;
+int Movable::destructed = 0;
+int Movable::moved = 0;
+
+void swap(Movable& a, Movable& b) {
+    /* Swap these without copying the parent class */
+    std::swap(a.a, b.a);
+}
+
+struct Immovable {
+    static int constructed;
+    static int destructed;
+
+    Immovable(const Immovable&) = delete;
+    Immovable(Immovable&&) = delete;
+    /*implicit*/ Immovable(int a = 0) noexcept: a{a} { ++constructed; }
+    ~Immovable() { ++destructed; }
+    Immovable& operator=(const Immovable&) = delete;
+    Immovable& operator=(Immovable&&) = delete;
+
+    int a;
+};
+
+int Immovable::constructed = 0;
+int Immovable::destructed = 0;
+
+void StaticArrayTest::resetCounters() {
+    Copyable::constructed = Copyable::destructed = Copyable::copied = Copyable::moved =
+        Movable::constructed = Movable::destructed = Movable::moved =
+            Immovable::constructed = Immovable::destructed = 0;
+}
+
+void StaticArrayTest::constructNoInit() {
+    {
+        const Containers::StaticArray<5, Copyable> a{NoInit};
+        CORRADE_COMPARE(Copyable::constructed, 0);
+
+        const Containers::StaticArray<5, Copyable> b{DefaultInit};
+        CORRADE_COMPARE(Copyable::constructed, 5);
+    }
+
+    CORRADE_COMPARE(Copyable::destructed, 10);
+}
+
+void StaticArrayTest::constructInPlaceInit() {
     const StaticArray a{1, 2, 3, 4, 5};
     const StaticArray b{InPlaceInit, 1, 2, 3, 4, 5};
 
@@ -177,41 +332,9 @@ void StaticArrayTest::constructInPlace() {
     CORRADE_COMPARE(b[4], 5);
 }
 
-void StaticArrayTest::constructInPlaceOneArgument() {
+void StaticArrayTest::constructInPlaceInitOneArgument() {
     const Containers::StaticArray<1, int> a{17};
     CORRADE_COMPARE(a[0], 17);
-}
-
-void StaticArrayTest::constructValueInit() {
-    const StaticArray a{ValueInit};
-    CORRADE_VERIFY(a);
-    CORRADE_COMPARE(a[0], 0);
-    CORRADE_COMPARE(a[1], 0);
-    CORRADE_COMPARE(a[2], 0);
-    CORRADE_COMPARE(a[3], 0);
-    CORRADE_COMPARE(a[4], 0);
-}
-
-struct Foo {
-    static int constructorCallCount;
-    static int destructorCallCount;
-    Foo() { ++constructorCallCount; }
-    ~Foo() { ++destructorCallCount; }
-};
-
-int Foo::constructorCallCount = 0;
-int Foo::destructorCallCount = 0;
-
-void StaticArrayTest::constructNoInit() {
-    {
-        const Containers::StaticArray<5, Foo> a{NoInit};
-        CORRADE_COMPARE(Foo::constructorCallCount, 0);
-
-        const Containers::StaticArray<5, Foo> b{DefaultInit};
-        CORRADE_COMPARE(Foo::constructorCallCount, 5);
-    }
-
-    CORRADE_COMPARE(Foo::destructorCallCount, 10);
 }
 
 void StaticArrayTest::constructDirectInit() {
@@ -224,20 +347,9 @@ void StaticArrayTest::constructDirectInit() {
 }
 
 void StaticArrayTest::constructNonCopyable() {
-    struct NonCopyable {
-        NonCopyable(const NonCopyable&) = delete;
-        NonCopyable(NonCopyable&&) = delete;
-        NonCopyable& operator=(const NonCopyable&) = delete;
-        NonCopyable& operator=(NonCopyable&&) = delete;
-
-        NonCopyable() {}
-
-        /* to make it non-trivial to hit
-           https://gcc.gnu.org/bugzilla/show_bug.cgi?id=70395 */
-        ~NonCopyable() {}
-    };
-
-    const Containers::StaticArray<5, NonCopyable> a;
+    /* Can't use ValueInit because that apparently copy-constructs the array
+       elements (huh?) */
+    const Containers::StaticArray<5, Immovable> a{DefaultInit};
     CORRADE_VERIFY(a);
 }
 
@@ -282,9 +394,90 @@ void StaticArrayTest::constructDirectReferences() {
     CORRADE_VERIFY(b);
 }
 
+void StaticArrayTest::copy() {
+    {
+        Containers::StaticArray<3, Copyable> a{Containers::InPlaceInit, 1, 2, 3};
+
+        Containers::StaticArray<3, Copyable> b{a};
+        CORRADE_COMPARE(b[0].a, 1);
+        CORRADE_COMPARE(b[1].a, 2);
+        CORRADE_COMPARE(b[2].a, 3);
+
+        Containers::StaticArray<3, Copyable> c;
+        c = b;
+        CORRADE_COMPARE(c[0].a, 1);
+        CORRADE_COMPARE(c[1].a, 2);
+        CORRADE_COMPARE(c[2].a, 3);
+    }
+
+    CORRADE_COMPARE(Copyable::constructed, 9);
+    CORRADE_COMPARE(Copyable::destructed, 9);
+    CORRADE_COMPARE(Copyable::copied, 6);
+    CORRADE_COMPARE(Copyable::moved, 0);
+
+    CORRADE_VERIFY(std::is_nothrow_copy_constructible<Copyable>::value);
+    CORRADE_VERIFY((std::is_nothrow_copy_constructible<Containers::StaticArray<3, Copyable>>::value));
+    CORRADE_VERIFY(std::is_nothrow_copy_assignable<Copyable>::value);
+    CORRADE_VERIFY((std::is_nothrow_copy_assignable<Containers::StaticArray<3, Copyable>>::value));
+
+    CORRADE_VERIFY(std::is_copy_constructible<Throwable>::value);
+    CORRADE_VERIFY(!(std::is_nothrow_copy_constructible<Throwable>::value));
+    CORRADE_VERIFY(!(std::is_nothrow_copy_constructible<Containers::StaticArray<3, Throwable>>::value));
+    CORRADE_VERIFY(std::is_copy_assignable<Throwable>::value);
+    CORRADE_VERIFY(!std::is_nothrow_copy_assignable<Throwable>::value);
+    CORRADE_VERIFY(!(std::is_nothrow_copy_assignable<Containers::StaticArray<3, Throwable>>::value));
+}
+
+
+void StaticArrayTest::move() {
+    {
+        Containers::StaticArray<3, Movable> a{Containers::InPlaceInit, 1, 2, 3};
+
+        Containers::StaticArray<3, Movable> b{std::move(a)};
+        CORRADE_COMPARE(b[0].a, 1);
+        CORRADE_COMPARE(b[1].a, 2);
+        CORRADE_COMPARE(b[2].a, 3);
+
+        Containers::StaticArray<3, Movable> c;
+        c = std::move(b); /* this uses the swap() specialization -> no move */
+        CORRADE_COMPARE(c[0].a, 1);
+        CORRADE_COMPARE(c[1].a, 2);
+        CORRADE_COMPARE(c[2].a, 3);
+    }
+
+    CORRADE_COMPARE(Movable::constructed, 9);
+    CORRADE_COMPARE(Movable::destructed, 9);
+    CORRADE_COMPARE(Movable::moved, 3);
+
+    CORRADE_VERIFY(!std::is_copy_constructible<Movable>::value);
+    CORRADE_VERIFY(!std::is_copy_assignable<Movable>::value);
+    {
+        CORRADE_EXPECT_FAIL("StaticArray currently doesn't propagate deleted copy constructor/assignment correctly.");
+        CORRADE_VERIFY(!(std::is_copy_constructible<Containers::StaticArray<3, Movable>>::value));
+        CORRADE_VERIFY(!(std::is_copy_assignable<Containers::StaticArray<3, Movable>>::value));
+    }
+
+    CORRADE_VERIFY((std::is_move_constructible<Containers::StaticArray<3, Movable>>::value));
+    CORRADE_VERIFY(std::is_nothrow_move_constructible<Movable>::value);
+    CORRADE_VERIFY((std::is_nothrow_move_constructible<Containers::StaticArray<3, Movable>>::value));
+    CORRADE_VERIFY((std::is_move_assignable<Containers::StaticArray<3, Movable>>::value));
+    CORRADE_VERIFY(std::is_nothrow_move_assignable<Movable>::value);
+    CORRADE_VERIFY((std::is_nothrow_move_assignable<Containers::StaticArray<3, Movable>>::value));
+
+    CORRADE_VERIFY(std::is_move_constructible<Throwable>::value);
+    CORRADE_VERIFY(!(std::is_nothrow_move_constructible<Throwable>::value));
+    CORRADE_VERIFY(!(std::is_nothrow_move_constructible<Containers::StaticArray<3, Throwable>>::value));
+    CORRADE_VERIFY(std::is_move_assignable<Throwable>::value);
+    CORRADE_VERIFY(!std::is_nothrow_move_assignable<Throwable>::value);
+    CORRADE_VERIFY(!(std::is_nothrow_move_assignable<Containers::StaticArray<3, Throwable>>::value));
+}
+
 void StaticArrayTest::convertBool() {
     CORRADE_VERIFY(StaticArray{});
-    CORRADE_VERIFY(!(std::is_convertible<StaticArray, int>::value));
+
+    /* Explicit conversion to bool is allowed, but not to int */
+    CORRADE_VERIFY((std::is_constructible<bool, StaticArray>::value));
+    CORRADE_VERIFY(!(std::is_constructible<int, StaticArray>::value));
 }
 
 void StaticArrayTest::convertPointer() {
@@ -572,17 +765,29 @@ void StaticArrayTest::slice() {
     CORRADE_COMPARE(bc[1], 3);
     CORRADE_COMPARE(bc[2], 4);
 
-    ArrayView c = a.prefix(3);
-    CORRADE_COMPARE(c.size(), 3);
-    CORRADE_COMPARE(c[0], 1);
-    CORRADE_COMPARE(c[1], 2);
-    CORRADE_COMPARE(c[2], 3);
+    ArrayView c1 = a.prefix(3);
+    CORRADE_COMPARE(c1.size(), 3);
+    CORRADE_COMPARE(c1[0], 1);
+    CORRADE_COMPARE(c1[1], 2);
+    CORRADE_COMPARE(c1[2], 3);
 
-    ConstArrayView cc = ac.prefix(3);
-    CORRADE_COMPARE(cc.size(), 3);
-    CORRADE_COMPARE(cc[0], 1);
-    CORRADE_COMPARE(cc[1], 2);
-    CORRADE_COMPARE(cc[2], 3);
+    ConstArrayView cc1 = ac.prefix(3);
+    CORRADE_COMPARE(cc1.size(), 3);
+    CORRADE_COMPARE(cc1[0], 1);
+    CORRADE_COMPARE(cc1[1], 2);
+    CORRADE_COMPARE(cc1[2], 3);
+
+    ArrayView c2 = a.except(2);
+    CORRADE_COMPARE(c2.size(), 3);
+    CORRADE_COMPARE(c2[0], 1);
+    CORRADE_COMPARE(c2[1], 2);
+    CORRADE_COMPARE(c2[2], 3);
+
+    ConstArrayView cc2 = ac.except(2);
+    CORRADE_COMPARE(cc2.size(), 3);
+    CORRADE_COMPARE(cc2[0], 1);
+    CORRADE_COMPARE(cc2[1], 2);
+    CORRADE_COMPARE(cc2[2], 3);
 
     ArrayView d = a.suffix(2);
     CORRADE_COMPARE(d.size(), 3);
@@ -642,27 +847,55 @@ void StaticArrayTest::sliceToStatic() {
     StaticArray a{InPlaceInit, 1, 2, 3, 4, 5};
     const StaticArray ac{InPlaceInit, 1, 2, 3, 4, 5};
 
-    Containers::StaticArrayView<3, int> b = a.slice<3>(1);
-    CORRADE_COMPARE(b[0], 2);
-    CORRADE_COMPARE(b[1], 3);
-    CORRADE_COMPARE(b[2], 4);
+    Containers::StaticArrayView<3, int> b1 = a.slice<3>(1);
+    CORRADE_COMPARE(b1[0], 2);
+    CORRADE_COMPARE(b1[1], 3);
+    CORRADE_COMPARE(b1[2], 4);
 
-    Containers::StaticArrayView<3, const int> bc = ac.slice<3>(1);
-    CORRADE_COMPARE(bc[0], 2);
-    CORRADE_COMPARE(bc[1], 3);
-    CORRADE_COMPARE(bc[2], 4);
+    Containers::StaticArrayView<3, const int> bc1 = ac.slice<3>(1);
+    CORRADE_COMPARE(bc1[0], 2);
+    CORRADE_COMPARE(bc1[1], 3);
+    CORRADE_COMPARE(bc1[2], 4);
 
-    Containers::StaticArrayView<3, int> c = a.prefix<3>();
-    CORRADE_COMPARE(c.size(), 3);
-    CORRADE_COMPARE(c[0], 1);
-    CORRADE_COMPARE(c[1], 2);
-    CORRADE_COMPARE(c[2], 3);
+    Containers::StaticArrayView<3, int> b2 = a.slice<1, 4>();
+    CORRADE_COMPARE(b2[0], 2);
+    CORRADE_COMPARE(b2[1], 3);
+    CORRADE_COMPARE(b2[2], 4);
 
-    Containers::StaticArrayView<3, const int> cc = ac.prefix<3>();
-    CORRADE_COMPARE(cc.size(), 3);
-    CORRADE_COMPARE(cc[0], 1);
-    CORRADE_COMPARE(cc[1], 2);
-    CORRADE_COMPARE(cc[2], 3);
+    Containers::StaticArrayView<3, const int> bc2 = ac.slice<1, 4>();
+    CORRADE_COMPARE(bc2[0], 2);
+    CORRADE_COMPARE(bc2[1], 3);
+    CORRADE_COMPARE(bc2[2], 4);
+
+    Containers::StaticArrayView<3, int> c1 = a.prefix<3>();
+    CORRADE_COMPARE(c1[0], 1);
+    CORRADE_COMPARE(c1[1], 2);
+    CORRADE_COMPARE(c1[2], 3);
+
+    Containers::StaticArrayView<3, const int> cc1 = ac.prefix<3>();
+    CORRADE_COMPARE(cc1[0], 1);
+    CORRADE_COMPARE(cc1[1], 2);
+    CORRADE_COMPARE(cc1[2], 3);
+
+    Containers::StaticArrayView<3, int> c2 = a.except<2>();
+    CORRADE_COMPARE(c2[0], 1);
+    CORRADE_COMPARE(c2[1], 2);
+    CORRADE_COMPARE(c2[2], 3);
+
+    Containers::StaticArrayView<3, const int> cc2 = ac.except<2>();
+    CORRADE_COMPARE(cc2[0], 1);
+    CORRADE_COMPARE(cc2[1], 2);
+    CORRADE_COMPARE(cc2[2], 3);
+
+    Containers::StaticArrayView<3, int> d = a.suffix<2>();
+    CORRADE_COMPARE(d[0], 3);
+    CORRADE_COMPARE(d[1], 4);
+    CORRADE_COMPARE(d[2], 5);
+
+    Containers::StaticArrayView<3, const int> cd = ac.suffix<2>();
+    CORRADE_COMPARE(cd[0], 3);
+    CORRADE_COMPARE(cd[1], 4);
+    CORRADE_COMPARE(cd[2], 5);
 }
 
 void StaticArrayTest::sliceToStaticPointer() {
@@ -721,6 +954,74 @@ void StaticArrayTest::size() {
     StaticArray a;
 
     CORRADE_COMPARE(Containers::arraySize(a), 5);
+}
+
+void StaticArrayTest::emplaceConstructorExplicitInCopyInitialization() {
+    /* See constructHelpers.h for details about this compiler-specific issue */
+    struct ExplicitDefault {
+        explicit ExplicitDefault() = default;
+    };
+
+    struct ContainingExplicitDefaultWithImplicitConstructor {
+        ExplicitDefault a;
+    };
+
+    /* This alone works */
+    ContainingExplicitDefaultWithImplicitConstructor a;
+    static_cast<void>(a);
+
+    /* So this should too */
+    Containers::StaticArray<3, ContainingExplicitDefaultWithImplicitConstructor> b{DirectInit};
+    CORRADE_COMPARE(b.size(), 3);
+}
+
+void StaticArrayTest::copyConstructPlainStruct() {
+    struct ExtremelyTrivial {
+        int a;
+        char b;
+    };
+
+    /* This needs special handling on GCC 4.8, where T{b} (copy-construction)
+       attempts to convert ExtremelyTrivial to int to initialize the first
+       argument and fails miserably. */
+    Containers::StaticArray<3, ExtremelyTrivial> a{DirectInit, 3, 'a'};
+    CORRADE_COMPARE(a.front().a, 3);
+
+    /* This copy-constructs new values */
+    Containers::StaticArray<3, ExtremelyTrivial> b{a};
+    CORRADE_COMPARE(b.front().a, 3);
+}
+
+void StaticArrayTest::moveConstructPlainStruct() {
+    /* Can't make MoveOnlyStruct directly non-copyable because then we'd hit
+       another GCC 4.8 bug where it can't be constructed using {} anymore. In
+       other tests I simply add a (move-only) Array or Pointer member, but here
+       I don't want to avoid a needless header dependency. */
+    struct MoveOnlyPointer {
+        MoveOnlyPointer(std::nullptr_t) {}
+        MoveOnlyPointer(const MoveOnlyPointer&) = delete;
+        MoveOnlyPointer(MoveOnlyPointer&&) = default;
+        MoveOnlyPointer& operator=(const MoveOnlyPointer&) = delete;
+        MoveOnlyPointer& operator=(MoveOnlyPointer&&) = default;
+
+        std::nullptr_t a;
+    };
+
+    struct MoveOnlyStruct {
+        int a;
+        char c;
+        MoveOnlyPointer b;
+    };
+
+    /* This needs special handling on GCC 4.8, where T{std::move(b)} attempts
+       to convert MoveOnlyStruct to int to initialize the first argument and
+       fails miserably. */
+    Containers::StaticArray<3, MoveOnlyStruct> a{DirectInit, 3, 'a', nullptr};
+    CORRADE_COMPARE(a.front().a, 3);
+
+    /* This move-constructs new values */
+    Containers::StaticArray<3, MoveOnlyStruct> b{std::move(a)};
+    CORRADE_COMPARE(b.front().a, 3);
 }
 
 }}}}

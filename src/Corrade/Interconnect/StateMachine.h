@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -185,7 +185,7 @@ template<std::size_t states, std::size_t inputs, class State, class Input> class
 
         /* LCOV_EXCL_START */
         Signal enteredInternal(State, std::integral_constant<std::size_t, 0>, State) {
-            CORRADE_ASSERT_UNREACHABLE();
+            CORRADE_INTERNAL_ASSERT_UNREACHABLE();
         }
         /* LCOV_EXCL_STOP */
 
@@ -197,7 +197,7 @@ template<std::size_t states, std::size_t inputs, class State, class Input> class
 
         /* LCOV_EXCL_START */
         Signal steppedInternal(State, std::integral_constant<std::size_t, 0>, State) {
-            CORRADE_ASSERT_UNREACHABLE();
+            CORRADE_INTERNAL_ASSERT_UNREACHABLE();
         }
         /* LCOV_EXCL_STOP */
 
@@ -207,7 +207,7 @@ template<std::size_t states, std::size_t inputs, class State, class Input> class
 
         /* LCOV_EXCL_START */
         template<State> Signal steppedNextInternal(State, std::integral_constant<std::size_t, 0>) {
-            CORRADE_ASSERT_UNREACHABLE();
+            CORRADE_INTERNAL_ASSERT_UNREACHABLE();
         }
         /* LCOV_EXCL_STOP */
 
@@ -217,7 +217,7 @@ template<std::size_t states, std::size_t inputs, class State, class Input> class
 
         /* LCOV_EXCL_START */
         Signal exitedInternal(State, std::integral_constant<std::size_t, 0>, State) {
-            CORRADE_ASSERT_UNREACHABLE();
+            CORRADE_INTERNAL_ASSERT_UNREACHABLE();
         }
         /* LCOV_EXCL_STOP */
 

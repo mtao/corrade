@@ -26,7 +26,7 @@ def sort_libs(correct_order, libs, lib_suffix='', reverse_result=False):
 
 class CorradeConan(ConanFile):
     name = "corrade"
-    version = "2019.01"
+    version = "2020.06"
     description = "Corrade is a multiplatform utility library written \
                     in C++11/C++14. It's used as a base for the Magnum \
                     graphics engine, among other things."
@@ -99,7 +99,8 @@ class CorradeConan(ConanFile):
 
         if self.settings.compiler == 'Visual Studio':
             add_cmake_option("MSVC2015_COMPATIBILITY", int(self.settings.compiler.version.value) == 14)
-            add_cmake_option("MSVC2017_COMPATIBILITY", int(self.settings.compiler.version.value) == 17)
+            add_cmake_option("MSVC2017_COMPATIBILITY", int(self.settings.compiler.version.value) == 15)
+            add_cmake_option("MSVC2019_COMPATIBILITY", int(self.settings.compiler.version.value) == 16)
 
         cmake.configure(build_folder=self._build_subfolder)
 

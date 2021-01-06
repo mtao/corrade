@@ -2,7 +2,7 @@
 #   This file is part of Corrade.
 #
 #   Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-#               2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+#               2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a
 #   copy of this software and associated documentation files (the "Software"),
@@ -26,17 +26,59 @@
 corrade_add_test(TestSuiteArgumentsTest ArgumentsTest.cpp
     ARGUMENTS --arguments-value hello)
 
+corrade_add_test(TestSuiteComparatorTest ComparatorTest.cpp)
+
 corrade_add_test(TestSuiteFailingTest FailingTest.cpp)
 set_tests_properties(TestSuiteFailingTest PROPERTIES WILL_FAIL ON)
 
-corrade_add_test(TestSuiteTesterTest TesterTest.cpp)
+corrade_add_test(TestSuiteTesterTest TesterTest.cpp
+    FILES
+        TesterTestFiles/abortOnFail.txt
+        TesterTestFiles/abortOnFailSkip.txt
+        TesterTestFiles/benchmarkCpuClock.txt
+        TesterTestFiles/benchmarkCpuCycles.txt
+        TesterTestFiles/benchmarkDiscardAll.txt
+        TesterTestFiles/benchmarkWallClock.txt
+        TesterTestFiles/benchmarkDebugBuildNote.txt
+        TesterTestFiles/benchmarkCpuScalingWarning.txt
+        TesterTestFiles/benchmarkCpuScalingWarningVerbose.txt
+        TesterTestFiles/compareMessageFailed.txt
+        TesterTestFiles/compareMessageVerboseDisabled.txt
+        TesterTestFiles/compareMessageVerboseEnabled.txt
+        TesterTestFiles/compareMessageXfail.txt
+        TesterTestFiles/noCatch.txt
+        TesterTestFiles/noXfail.txt
+        TesterTestFiles/repeatAll.txt
+        TesterTestFiles/repeatEvery.txt
+        TesterTestFiles/saveDiagnosticAbortOnFail.txt
+        TesterTestFiles/saveDiagnosticSucceededDisabled.txt
+        TesterTestFiles/saveDiagnosticSucceededEnabled.txt
+        TesterTestFiles/saveDiagnosticFailedDisabled.txt
+        TesterTestFiles/saveDiagnosticFailedEnabled.txt
+        TesterTestFiles/saveDiagnosticVerboseDisabled.txt
+        TesterTestFiles/saveDiagnosticVerboseEnabled.txt
+        TesterTestFiles/saveDiagnosticXfail.txt
+        TesterTestFiles/saveDiagnosticXpassDisabled.txt
+        TesterTestFiles/saveDiagnosticXpassEnabled.txt
+        TesterTestFiles/shuffleOne.txt
+        TesterTestFiles/skipBenchmarks.txt
+        TesterTestFiles/skipOnly.txt
+        TesterTestFiles/skipTests.txt
+        TesterTestFiles/test.txt
+        TesterTestFiles/testName.txt
+
+        TesterTestFiles/cpu-governor-performance.txt
+        TesterTestFiles/cpu-governor-powersave.txt)
+target_include_directories(TestSuiteTesterTest PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 if(CORRADE_TARGET_EMSCRIPTEN OR CORRADE_TARGET_ANDROID)
     set(RELATIVE_TEST_DIR ".")
     set(ABSOLUTE_TEST_DIR ".")
+    set(TESTER_TEST_DIR "TesterTestFiles")
 else()
     set(RELATIVE_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR})
     set(ABSOLUTE_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/BundledFilesTestFiles)
+    set(TESTER_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/TesterTestFiles)
 endif()
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/configure.h.cmake

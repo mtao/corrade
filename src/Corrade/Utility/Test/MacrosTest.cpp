@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -23,25 +23,69 @@
     DEALINGS IN THE SOFTWARE.
 */
 
+#include "Corrade/Containers/StringView.h"
 #include "Corrade/TestSuite/Tester.h"
 #include "Corrade/TestSuite/Compare/Numeric.h"
+#include "Corrade/Utility/DebugStl.h"
+
+#ifndef CORRADE_TARGET_EMSCRIPTEN
+#include <thread>
+#endif
 
 namespace Corrade { namespace Utility { namespace Test { namespace {
+
+/* Putting this as early as possible so it doesn't get changed every time */
+constexpr const char* ThisIsLine38 = CORRADE_LINE_STRING;
 
 struct MacrosTest: TestSuite::Tester {
     explicit MacrosTest();
 
+    void defer();
+
     void alignAs();
     void deprecated();
     void noreturn();
+    void fallthrough();
     void cxxStandard();
+    void alwaysNeverInline();
+    void function();
+    void lineString();
+
+    #ifndef CORRADE_TARGET_EMSCRIPTEN
+    void threadLocal();
+    #endif
 };
 
 MacrosTest::MacrosTest() {
-    addTests({&MacrosTest::alignAs,
+    addTests({&MacrosTest::defer,
+
+              &MacrosTest::alignAs,
               &MacrosTest::deprecated,
               &MacrosTest::noreturn,
-              &MacrosTest::cxxStandard});
+              &MacrosTest::fallthrough,
+              &MacrosTest::cxxStandard,
+              &MacrosTest::alwaysNeverInline,
+              &MacrosTest::function,
+              &MacrosTest::lineString,
+
+              #ifndef CORRADE_TARGET_EMSCRIPTEN
+              &MacrosTest::threadLocal
+              #endif
+              });
+}
+
+using namespace Containers::Literals;
+
+void MacrosTest::defer() {
+    #ifdef _CORRADE_HELPER_DEFER
+    #define ABC "abc", 3, false
+    #define ADD_SUFFIX2(str, len, uppercase) str "def"
+    #define ADD_SUFFIX(...) _CORRADE_HELPER_DEFER(ADD_SUFFIX2, __VA_ARGS__)
+
+    CORRADE_COMPARE(ADD_SUFFIX(ABC), "abcdef"_s);
+    #else
+    CORRADE_SKIP("Defer functionality not available on this compiler.");
+    #endif
 }
 
 void MacrosTest::alignAs() {
@@ -50,6 +94,7 @@ void MacrosTest::alignAs() {
 }
 
 /* Declarations on their own shouldn't produce any compiler diagnostics */
+CORRADE_DEPRECATED("use Variable instead") constexpr int DeprecatedVariable = 3;
 CORRADE_DEPRECATED("use function() instead") int deprecatedFunction() { return 1; }
 struct CORRADE_DEPRECATED("use Struct instead") DeprecatedStruct { enum: int { Value = 1 }; int value = 1; };
 struct Struct { enum: int { Value = 1 }; int value = 1; };
@@ -75,6 +120,8 @@ CORRADE_DEPRECATED_FILE( /* Warning on MSVC, GCC, Clang */
 
 void MacrosTest::deprecated() {
     DEPRECATED_MACRO(hello?); /* Warning on MSVC, GCC, Clang */
+
+    CORRADE_COMPARE(DeprecatedVariable, 3);
 
     CORRADE_VERIFY(deprecatedFunction()); /* Warning on MSVC, GCC, Clang */
 
@@ -114,9 +161,75 @@ void MacrosTest::noreturn() {
     CORRADE_VERIFY(true);
 }
 
+void MacrosTest::fallthrough() {
+    int a = 2;
+    int d[5]{};
+    int e[5]{5, 4, 3, 2, 1};
+    int *b = d, *c = e;
+    switch(a) {
+        case 2:
+            *b++ = *c++;
+            CORRADE_FALLTHROUGH
+        case 1:
+            *b++ = *c++;
+    };
+
+    CORRADE_COMPARE(d[0], 5);
+    CORRADE_COMPARE(d[1], 4);
+}
+
 void MacrosTest::cxxStandard() {
     CORRADE_COMPARE_AS(CORRADE_CXX_STANDARD, 201103, TestSuite::Compare::GreaterOrEqual);
 }
+
+CORRADE_ALWAYS_INLINE int alwaysInline() { return 5; }
+CORRADE_NEVER_INLINE int neverInline() { return 37; }
+
+void MacrosTest::alwaysNeverInline() {
+    CORRADE_COMPARE(alwaysInline() + neverInline(), 42);
+}
+
+/* Needs another inner anonymous namespace otherwise Clang complains about a
+   missing prototype (UGH) */
+namespace SubNamespace { namespace {
+    const char* thisIsAFunction(int, float) {
+        return CORRADE_FUNCTION;
+    }
+}}
+
+void MacrosTest::function() {
+    /* Should be really just a function name, with no mangled signature or
+       surrounding namespace. Compare as a string to avoid comparing
+       pointers -- they are equal on some compilers, but not always. */
+    CORRADE_COMPARE(SubNamespace::thisIsAFunction(1, 0.0f), std::string{"thisIsAFunction"});
+}
+
+void MacrosTest::lineString() {
+    CORRADE_COMPARE(ThisIsLine38, "38"_s);
+}
+
+#ifndef CORRADE_TARGET_EMSCRIPTEN
+CORRADE_THREAD_LOCAL int threadLocalVar = 3;
+int globalVar = 3;
+
+void MacrosTest::threadLocal() {
+    threadLocalVar = 5;
+    globalVar = 15;
+
+    CORRADE_COMPARE(threadLocalVar, 5);
+    CORRADE_COMPARE(globalVar, 15);
+
+    std::thread t{[]() {
+        threadLocalVar = 7;
+        globalVar = 17;
+    }};
+
+    t.join();
+
+    CORRADE_COMPARE(threadLocalVar, 5);
+    CORRADE_COMPARE(globalVar, 17);
+}
+#endif
 
 }}}}
 

@@ -2,7 +2,8 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
+    Copyright © 2019, 2020 Jonathan Hale <squareys@googlemail.com>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -49,14 +50,17 @@
 #include <android/api-level.h>
 #endif
 
-/* Unix memory mapping */
+/* Unix memory mapping, library location */
 #ifdef CORRADE_TARGET_UNIX
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <dlfcn.h> /* dladdr(), needs also -ldl */
 #endif
 
 /* Unix, Emscripten file & directory access */
 #if defined(CORRADE_TARGET_UNIX) || defined(CORRADE_TARGET_EMSCRIPTEN)
+#include <cerrno>
+#include <cstring>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
@@ -77,11 +81,14 @@
 #endif
 #include <shlobj.h>
 #include <io.h>
+
+#include "Corrade/Utility/Implementation/WindowsError.h"
 #endif
 
 #include "Corrade/configure.h"
 #include "Corrade/Containers/Array.h"
 #include "Corrade/Containers/ScopeGuard.h"
+#include "Corrade/Containers/Optional.h"
 #include "Corrade/Utility/Debug.h"
 #include "Corrade/Utility/DebugStl.h"
 #include "Corrade/Utility/String.h"
@@ -133,6 +140,30 @@ std::string filename(const std::string& filename) {
     return filename.substr(pos+1);
 }
 
+std::pair<std::string, std::string> splitExtension(const std::string& filename) {
+    /* Find the last dot and the last slash -- for file.tar.gz we want just
+       .gz as an extension; for /etc/rc.conf/bak we don't want to split at the
+       folder name. */
+    const std::size_t pos = filename.find_last_of('.');
+    const std::size_t lastSlash = filename.find_last_of('/');
+
+    /* Empty extension if there's no dot or if the dot is not inside the
+       filename */
+    if(pos == std::string::npos || (lastSlash != std::string::npos && pos < lastSlash))
+        return {filename, {}};
+
+    /* If the dot at the start of the filename (/root/.bashrc), it's also an
+       empty extension. Multiple dots at the start (/home/mosra/../..) classify
+       as no extension as well. */
+    std::size_t prev = pos;
+    while(prev && filename[prev - 1] == '.') --prev;
+    CORRADE_INTERNAL_ASSERT(pos < filename.size());
+    if(prev == 0 || filename[prev - 1] == '/') return {filename, {}};
+
+    /* Otherwise it's a real extension */
+    return {filename.substr(0, pos), filename.substr(pos)};
+}
+
 std::string join(const std::string& path, const std::string& filename) {
     /* Empty path */
     if(path.empty()) return filename;
@@ -167,14 +198,11 @@ std::string join(const std::initializer_list<std::string> paths) {
 }
 
 bool mkpath(const std::string& path) {
-    if(path.empty()) return false;
+    if(path.empty()) return true;
 
     /* If path contains trailing slash, strip it */
     if(path.back() == '/')
         return mkpath(path.substr(0, path.size()-1));
-
-    /* If the directory exists, done */
-    if(exists(path)) return true;
 
     /* If parent directory doesn't exist, create it */
     const std::string parentPath = Directory::path(path);
@@ -185,11 +213,21 @@ bool mkpath(const std::string& path) {
     /* Unix, Emscripten */
     #if defined(CORRADE_TARGET_UNIX) || defined(CORRADE_TARGET_EMSCRIPTEN)
     const int ret = mkdir(path.data(), 0777);
-    return ret == 0;
+    if(ret != 0 && errno != EEXIST) {
+        Error{} << "Utility::Directory::mkpath(): error creating" << path << Debug::nospace << ":" << strerror(errno);
+        return false;
+    }
+    return true;
 
     /* Windows (not Store/Phone) */
     #elif defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT)
-    return CreateDirectoryW(widen(path).data(), nullptr) != 0 || GetLastError() == ERROR_ALREADY_EXISTS;
+    if(CreateDirectoryW(widen(path).data(), nullptr) == 0 && GetLastError() != ERROR_ALREADY_EXISTS) {
+        Error{} << "Utility::Directory::mkpath(): error creating"
+            << path << Debug::nospace << ":"
+            << Utility::Implementation::windowsErrorString(GetLastError());
+        return false;
+    }
+    return true;
 
     /* Not implemented elsewhere */
     #else
@@ -247,6 +285,88 @@ bool exists(const std::string& filename) {
     #endif
 }
 
+namespace {
+
+/* Used by fileSize() and read(). Returns NullOpt if the file is not seekable
+   (as file existence is already checked when opening the FILE*). */
+Containers::Optional<std::size_t> fileSize(std::FILE* const f) {
+    #if defined(CORRADE_TARGET_UNIX) || defined(CORRADE_TARGET_EMSCRIPTEN) || defined(CORRADE_TARGET_WINDOWS)
+    /* If the file is not seekable, return NullOpt. On POSIX this is usually
+       -1 when the file is non-seekable: https://stackoverflow.com/q/3238788
+       It's undefined behavior on MSVC, tho (but possibly not on MinGW?):
+       https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/lseek-lseeki64 */
+    /** @todo find a reliable way on Windows */
+    if(
+        #ifndef CORRADE_TARGET_WINDOWS
+        lseek(fileno(f), 0, SEEK_END) == -1
+        #else
+        _lseek(_fileno(f), 0, SEEK_END) == -1
+        #endif
+    ) return {};
+    #else
+    /** @todo implementation for non-seekable platforms elsewhere? */
+    #endif
+
+    std::fseek(f, 0, SEEK_END);
+    #if defined(CORRADE_TARGET_UNIX) || defined(CORRADE_TARGET_EMSCRIPTEN)
+    const std::size_t size =
+        /* 32-bit Android ignores _LARGEFILE_SOURCE and instead makes ftello()
+           available always after API level 24 and never before that
+           https://android.googlesource.com/platform/bionic/+/master/docs/32-bit-abi.md */
+        #if defined(CORRADE_TARGET_ANDROID) && __SIZEOF_POINTER__ == 4 && __ANDROID_API__ < 24
+        ftell(f)
+        #else
+        ftello(f)
+        #endif
+        ;
+    #elif defined(CORRADE_TARGET_WINDOWS)
+    const std::size_t size = _ftelli64(f);
+    #else
+    const std::size_t size = std::ftell(f);
+    #endif
+
+    /* Put the file handle back to its original state */
+    std::rewind(f);
+
+    return size;
+}
+
+}
+
+Containers::Optional<std::size_t> fileSize(const std::string& filename) {
+    /* Special case for "Unicode" Windows support */
+    #ifndef CORRADE_TARGET_WINDOWS
+    std::FILE* const f = std::fopen(filename.data(), "rb");
+    #else
+    std::FILE* const f = _wfopen(widen(filename).data(), L"rb");
+    #endif
+    if(!f) {
+        Error{} << "Utility::Directory::fileSize(): can't open" << filename;
+        return {};
+    }
+
+    Containers::ScopeGuard exit{f, std::fclose};
+    Containers::Optional<std::size_t> size = fileSize(f);
+    if(!size)
+        Error{} << "Utility::Directory::fileSize():" << filename << "is not seekable";
+    return size;
+}
+
+bool isDirectory(const std::string& path) {
+    #if defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT)
+    const DWORD fileAttributes = GetFileAttributesW(widen(path).data());
+    return fileAttributes != INVALID_FILE_ATTRIBUTES && (fileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+
+    #elif defined(CORRADE_TARGET_UNIX) || defined(CORRADE_TARGET_EMSCRIPTEN)
+    struct stat st;
+    return lstat(path.data(), &st) == 0 && S_ISDIR(st.st_mode);
+    #else
+    static_cast<void>(path);
+    Warning() << "Utility::Directory::isDirectory(): not implemented on this platform";
+    return false;
+    #endif
+}
+
 bool isSandboxed() {
     #if defined(CORRADE_TARGET_IOS) || defined(CORRADE_TARGET_ANDROID) || defined(CORRADE_TARGET_EMSCRIPTEN) || defined(CORRADE_TARGET_WINDOWS_RT)
     return true;
@@ -256,6 +376,87 @@ bool isSandboxed() {
     return false;
     #endif
 }
+
+std::string current() {
+    /* POSIX. Needs a shitty loop because ... ugh. */
+    #ifdef CORRADE_TARGET_UNIX
+    std::string path(4, '\0');
+    char* success;
+    while(!(success = getcwd(&path[0], path.size() + 1))) {
+        /* Unexpected error, exit */
+        if(errno != ERANGE) {
+            Error{} << "Utility::Directory::current(): error:" << strerror(errno);
+            return {};
+        }
+
+        /* Otherwise try again with larger buffer */
+        path.resize(path.size()*2);
+    }
+
+    /* Success, cut the path to correct size */
+    path.resize(std::strlen(&path[0]));
+    return path;
+    CORRADE_INTERNAL_ASSERT_UNREACHABLE();
+
+    /* Windows (not RT) */
+    #elif defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT)
+    const std::size_t sizePlusOne = GetCurrentDirectoryW(0, nullptr);
+    CORRADE_INTERNAL_ASSERT(sizePlusOne);
+    /* std::string is always 0-terminated meaning we can ask it to have size
+       only for what we need */
+    std::wstring path(sizePlusOne - 1, '\0');
+    CORRADE_INTERNAL_ASSERT_OUTPUT(GetCurrentDirectoryW(sizePlusOne, &path[0]) == sizePlusOne - 1);
+    return fromNativeSeparators(narrow(path));
+
+    /* Use the root path on Emscripten */
+    #elif defined(CORRADE_TARGET_EMSCRIPTEN)
+    return "/";
+
+    /* No clue elsewhere (and on Windows RT) */
+    #else
+    Warning() << "Utility::Directory::current(): not implemented on this platform";
+    return {};
+    #endif
+}
+
+#if defined(DOXYGEN_GENERATING_OUTPUT) || defined(CORRADE_TARGET_UNIX) || (defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT))
+std::string libraryLocation(const void* address) {
+    /* Linux (and macOS as well, even though Linux man pages don't mention that) */
+    #ifdef CORRADE_TARGET_UNIX
+    /* Otherwise GCC 4.8 loudly complains about missing initializers */
+    Dl_info info{nullptr, nullptr, nullptr, nullptr};
+    if(!dladdr(address, &info)) {
+        Error e;
+        e << "Utility::Directory::libraryLocation(): can't get library location";
+        const char* const error = dlerror();
+        if(error)
+            e << Debug::nospace << ":" << error;
+        return {};
+    }
+
+    return info.dli_fname;
+    #elif defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT)
+    HMODULE module{};
+    if(!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<const char*>(address), &module)) {
+        Error{} << "Utility::Directory::libraryLocation(): can't get library location:"
+            << Utility::Implementation::windowsErrorString(GetLastError());
+        return {};
+    }
+
+    /** @todo get rid of MAX_PATH */
+    std::wstring path(MAX_PATH, L'\0');
+    std::size_t size = GetModuleFileNameW(module, &path[0], path.size());
+    path.resize(size);
+    return fromNativeSeparators(narrow(path));
+    #endif
+}
+
+#ifndef DOXYGEN_GENERATING_OUTPUT
+std::string libraryLocation(Implementation::FunctionPointer address) {
+    return libraryLocation(address.address);
+}
+#endif
+#endif
 
 std::string executableLocation() {
     /* Linux */
@@ -288,9 +489,8 @@ std::string executableLocation() {
 
     /* Windows (not RT) */
     #elif defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT)
-    HMODULE module = GetModuleHandle(nullptr);
     std::wstring path(MAX_PATH, L'\0');
-    std::size_t size = GetModuleFileNameW(module, &path[0], path.size());
+    std::size_t size = GetModuleFileNameW(nullptr, &path[0], path.size());
     path.resize(size);
     return fromNativeSeparators(narrow(path));
 
@@ -300,6 +500,7 @@ std::string executableLocation() {
 
     /* Not implemented */
     #else
+    Warning() << "Utility::Directory::executableLocation(): not implemented on this platform";
     return std::string{};
     #endif
 }
@@ -427,6 +628,14 @@ std::vector<std::string> list(const std::string& path, Flags flags) {
     WIN32_FIND_DATAW data;
     HANDLE hFile = FindFirstFileW(widen(join(path, "*")).data(), &data);
     if(hFile == INVALID_HANDLE_VALUE) return list;
+    Containers::ScopeGuard closeHandle{hFile,
+        #ifdef CORRADE_MSVC2015_COMPATIBILITY
+        /* MSVC 2015 is unable to cast the parameter for FindClose */
+        [](HANDLE hFile){ FindClose(hFile); }
+        #else
+        FindClose
+        #endif
+    };
 
     /* Explicitly add `.` for compatibility with other systems */
     if(!(flags & (Flag::SkipDotAndDotDot|Flag::SkipDirectories))) list.push_back(".");
@@ -473,20 +682,10 @@ Containers::Array<char> read(const std::string& filename) {
     }
 
     Containers::ScopeGuard exit{f, std::fclose};
+    Containers::Optional<std::size_t> size = fileSize(f);
 
-    #if defined(CORRADE_TARGET_UNIX) || defined(CORRADE_TARGET_EMSCRIPTEN) || defined(CORRADE_TARGET_WINDOWS)
-    /* If the file is not seekable, read it in chunks. On POSIX this is usually
-       -1 when the file is non-seekable: https://stackoverflow.com/q/3238788
-       It's undefined behavior on MSVC, tho (but possibly not on MinGW?):
-       https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/lseek-lseeki64 */
-    /** @todo find a reliable way on Windows */
-    if(
-        #ifndef CORRADE_TARGET_WINDOWS
-        lseek(fileno(f), 0, SEEK_END) == -1
-        #else
-        _lseek(_fileno(f), 0, SEEK_END) == -1
-        #endif
-    ) {
+    /* If the file is not seekable, read it in chunks */
+    if(!size) {
         std::string data;
         char buffer[4096];
         std::size_t count;
@@ -499,32 +698,13 @@ Containers::Array<char> read(const std::string& filename) {
         std::copy(data.begin(), data.end(), out.begin());
         return out;
     }
-    #else
-    /** @todo implementation for non-seekable platforms elsewhere? */
-    #endif
 
-    std::fseek(f, 0, SEEK_END);
-    #if defined(CORRADE_TARGET_UNIX) || defined(CORRADE_TARGET_EMSCRIPTEN)
-    const std::size_t size =
-        /* 32-bit Android ignores _LARGEFILE_SOURCE and instead makes ftello()
-           available always after API level 24 and never before that
-           https://android.googlesource.com/platform/bionic/+/master/docs/32-bit-abi.md */
-        #if defined(CORRADE_TARGET_ANDROID) && __SIZEOF_POINTER__ == 4 && __ANDROID_API__ < 24
-        ftell(f)
-        #else
-        ftello(f)
-        #endif
-        ;
-    #elif defined(CORRADE_TARGET_WINDOWS)
-    const std::size_t size = _ftelli64(f);
-    #else
-    const std::size_t size = std::ftell(f);
-    #endif
-    std::rewind(f);
-
-    Containers::Array<char> out{size};
-    CORRADE_INTERNAL_ASSERT(std::fread(out, 1, size, f) == size);
-    return out;
+    /* Some special files report more bytes than they actually have (such as
+       stuff in /sys). Clamp the returned array to what was reported. */
+    Containers::Array<char> out{*size};
+    const std::size_t realSize = std::fread(out, 1, *size, f);
+    CORRADE_INTERNAL_ASSERT(realSize <= *size);
+    return Containers::Array<char>{out.release(), realSize};
 }
 
 std::string readString(const std::string& filename) {
@@ -583,19 +763,27 @@ bool copy(const std::string& from, const std::string& to) {
     /* Special case for "Unicode" Windows support */
     #ifndef CORRADE_TARGET_WINDOWS
     std::FILE* const in = std::fopen(from.data(), "rb");
-    std::FILE* const out = std::fopen(to.data(), "wb");
     #else
     std::FILE* const in = _wfopen(widen(from).data(), L"rb");
-    std::FILE* const out = _wfopen(widen(to).data(), L"wb");
     #endif
     if(!in) {
         Error{} << "Utility::Directory::copy(): can't open" << from;
         return false;
     }
+
+    Containers::ScopeGuard exitIn{in, std::fclose};
+
+    #ifndef CORRADE_TARGET_WINDOWS
+    std::FILE* const out = std::fopen(to.data(), "wb");
+    #else
+    std::FILE* const out = _wfopen(widen(to).data(), L"wb");
+    #endif
     if(!out) {
         Error{} << "Utility::Directory::copy(): can't open" << to;
         return false;
     }
+
+    Containers::ScopeGuard exitOut{out, std::fclose};
 
     #if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L
     /* As noted in https://eklitzke.org/efficient-file-copying-on-linux, might
@@ -603,9 +791,6 @@ bool copy(const std::string& from, const std::string& to) {
        benchmark on my ultra-fast SSD, though. */
     posix_fadvise(fileno(in), 0, 0, POSIX_FADV_SEQUENTIAL);
     #endif
-
-    Containers::ScopeGuard exitIn{in, std::fclose};
-    Containers::ScopeGuard exitOut{out, std::fclose};
 
     /* 128 kB: https://eklitzke.org/efficient-file-copying-on-linux. The 100 MB
        benchmark agrees, going below is significantly slower and going above is
@@ -627,34 +812,24 @@ void MapDeleter::operator()(const char* const data, const std::size_t size) {
     if(_fd) close(_fd);
 }
 
-Containers::Array<char, MapDeleter> map(const std::string& filename, std::size_t size) {
-    /* Open the file for writing. Create if it doesn't exist, truncate it if it
-       does. */
-    const int fd = open(filename.data(), O_RDWR|O_CREAT|O_TRUNC, mode_t(0600));
+Containers::Array<char, MapDeleter> map(const std::string& filename) {
+    /* Open the file for reading */
+    const int fd = open(filename.data(), O_RDWR);
     if(fd == -1) {
-        Error() << "Utility::Directory::map(): can't open" << filename;
+        Error{} << "Utility::Directory::map(): can't open" << filename;
         return nullptr;
     }
 
-    /* Resize the file to requested size by seeking one byte before */
-    if(lseek(fd, size - 1, SEEK_SET) == -1) {
-        close(fd);
-        Error() << "Utility::Directory::map(): can't seek to resize the file";
-        return nullptr;
-    }
-
-    /* And then writing a zero byte on that position */
-    if(::write(fd, "", 1) != 1) {
-        close(fd);
-        Error() << "Utility::Directory::map(): can't write to resize the file";
-        return nullptr;
-    }
+    /* Get file size */
+    const off_t currentPos = lseek(fd, 0, SEEK_CUR);
+    const std::size_t size = lseek(fd, 0, SEEK_END);
+    lseek(fd, currentPos, SEEK_SET);
 
     /* Map the file */
     char* data = reinterpret_cast<char*>(mmap(nullptr, size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0));
     if(data == MAP_FAILED) {
         close(fd);
-        Error() << "Utility::Directory::map(): can't map the file";
+        Error{} << "Utility::Directory::map(): can't map the file";
         return nullptr;
     }
 
@@ -684,6 +859,40 @@ Containers::Array<const char, MapDeleter> mapRead(const std::string& filename) {
 
     return Containers::Array<const char, MapDeleter>{data, size, MapDeleter{fd}};
 }
+
+Containers::Array<char, MapDeleter> mapWrite(const std::string& filename, std::size_t size) {
+    /* Open the file for writing. Create if it doesn't exist, truncate it if it
+       does. */
+    const int fd = open(filename.data(), O_RDWR|O_CREAT|O_TRUNC, mode_t(0600));
+    if(fd == -1) {
+        Error{} << "Utility::Directory::mapWrite(): can't open" << filename;
+        return nullptr;
+    }
+
+    /* Resize the file to requested size by seeking one byte before */
+    if(lseek(fd, size - 1, SEEK_SET) == -1) {
+        close(fd);
+        Error{} << "Utility::Directory::mapWrite(): can't seek to resize the file";
+        return nullptr;
+    }
+
+    /* And then writing a zero byte on that position */
+    if(::write(fd, "", 1) != 1) {
+        close(fd);
+        Error{} << "Utility::Directory::mapWrite(): can't write to resize the file";
+        return nullptr;
+    }
+
+    /* Map the file */
+    char* data = reinterpret_cast<char*>(mmap(nullptr, size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0));
+    if(data == MAP_FAILED) {
+        close(fd);
+        Error{} << "Utility::Directory::mapWrite(): can't map the file";
+        return nullptr;
+    }
+
+    return Containers::Array<char, MapDeleter>{data, size, MapDeleter{fd}};
+}
 #elif defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT)
 void MapDeleter::operator()(const char* const data, const std::size_t) {
     if(data) UnmapViewOfFile(data);
@@ -691,23 +900,26 @@ void MapDeleter::operator()(const char* const data, const std::size_t) {
     if(_hFile) CloseHandle(_hFile);
 }
 
-Containers::Array<char, MapDeleter> map(const std::string& filename, std::size_t size) {
+Containers::Array<char, MapDeleter> map(const std::string& filename) {
     /* Open the file for writing. Create if it doesn't exist, truncate it if it
        does. */
     HANDLE hFile = CreateFileW(widen(filename).data(),
-        GENERIC_READ|GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE, nullptr, CREATE_ALWAYS, 0, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) {
+        GENERIC_READ|GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if(hFile == INVALID_HANDLE_VALUE) {
         Error() << "Utility::Directory::map(): can't open" << filename;
         return nullptr;
     }
 
     /* Create the file mapping */
-    HANDLE hMap = CreateFileMappingW(hFile, nullptr, PAGE_READWRITE, 0, size, nullptr);
-    if (!hMap) {
+    HANDLE hMap = CreateFileMappingW(hFile, nullptr, PAGE_READWRITE, 0, 0, nullptr);
+    if(!hMap) {
         Error() << "Utility::Directory::map(): can't create the file mapping:" << GetLastError();
         CloseHandle(hFile);
         return nullptr;
     }
+
+    /* Get file size */
+    const size_t size = GetFileSize(hFile, nullptr);
 
     /* Map the file */
     char* data = reinterpret_cast<char*>(::MapViewOfFile(hMap, FILE_MAP_ALL_ACCESS, 0, 0, 0));
@@ -725,14 +937,14 @@ Containers::Array<const char, MapDeleter> mapRead(const std::string& filename) {
     /* Open the file for reading */
     HANDLE hFile = CreateFileW(widen(filename).data(),
         GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) {
+    if(hFile == INVALID_HANDLE_VALUE) {
         Error() << "Utility::Directory::mapRead(): can't open" << filename;
         return nullptr;
     }
 
     /* Create the file mapping */
     HANDLE hMap = CreateFileMappingW(hFile, nullptr, PAGE_READONLY, 0, 0, nullptr);
-    if (!hMap) {
+    if(!hMap) {
         Error() << "Utility::Directory::mapRead(): can't create the file mapping:" << GetLastError();
         CloseHandle(hFile);
         return nullptr;
@@ -751,6 +963,42 @@ Containers::Array<const char, MapDeleter> mapRead(const std::string& filename) {
     }
 
     return Containers::Array<const char, MapDeleter>{data, size, MapDeleter{hFile, hMap}};
+}
+
+Containers::Array<char, MapDeleter> mapWrite(const std::string& filename, std::size_t size) {
+    /* Open the file for writing. Create if it doesn't exist, truncate it if it
+       does. */
+    HANDLE hFile = CreateFileW(widen(filename).data(),
+        GENERIC_READ|GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE, nullptr, CREATE_ALWAYS, 0, nullptr);
+    if(hFile == INVALID_HANDLE_VALUE) {
+        Error() << "Utility::Directory::mapWrite(): can't open" << filename;
+        return nullptr;
+    }
+
+    /* Create the file mapping */
+    HANDLE hMap = CreateFileMappingW(hFile, nullptr, PAGE_READWRITE, 0, size, nullptr);
+    if(!hMap) {
+        Error() << "Utility::Directory::mapWrite(): can't create the file mapping:" << GetLastError();
+        CloseHandle(hFile);
+        return nullptr;
+    }
+
+    /* Map the file */
+    char* data = reinterpret_cast<char*>(::MapViewOfFile(hMap, FILE_MAP_ALL_ACCESS, 0, 0, 0));
+    if(!data) {
+        Error() << "Utility::Directory::mapWrite(): can't map the file:" << GetLastError();
+        CloseHandle(hMap);
+        CloseHandle(hFile);
+        return nullptr;
+    }
+
+    return Containers::Array<char, MapDeleter>{data, size, MapDeleter{hFile, hMap}};
+}
+#endif
+
+#if defined(CORRADE_BUILD_DEPRECATED) && (defined(CORRADE_TARGET_UNIX) || (defined(CORRADE_TARGET_WINDOWS) && !defined(CORRADE_TARGET_WINDOWS_RT)))
+Containers::Array<char, MapDeleter> map(const std::string& filename, const std::size_t size) {
+    return mapWrite(filename, size);
 }
 #endif
 

@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -26,27 +26,32 @@
 #include <sstream>
 
 #include "Corrade/Containers/Array.h"
+#include "Corrade/Containers/Optional.h"
 #include "Corrade/PluginManager/Manager.h"
 #include "Corrade/PluginManager/PluginMetadata.h"
 #include "Corrade/TestSuite/Tester.h"
 #include "Corrade/TestSuite/Compare/Container.h"
 #include "Corrade/Utility/DebugStl.h" /** @todo remove when <sstream> is gone */
 #include "Corrade/Utility/Directory.h"
+#include "Corrade/Utility/FormatStl.h"
 #include "Corrade/Utility/Configuration.h"
+#include "Corrade/Utility/System.h"
 
 #include "AbstractAnimal.h"
-#include "AbstractFood.h"
+#include "AbstractCustomSuffix.h"
 #include "AbstractDeletable.h"
+#include "AbstractDisabledMetadata.h"
+#include "AbstractFood.h"
 
 #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
-#include "Corrade/PluginManager/configure.h"
-
 #include "Corrade/PluginManager/Test/wrong-metadata/WrongMetadata.h"
 #include "configure.h"
 #endif
 
-static void initialize() {
+static void importPlugin() {
     CORRADE_PLUGIN_IMPORT(Canary)
+    CORRADE_PLUGIN_IMPORT(CustomSuffixStatic)
+    CORRADE_PLUGIN_IMPORT(DisabledMetadataStatic)
 }
 
 namespace Corrade { namespace PluginManager { namespace Test { namespace {
@@ -64,6 +69,7 @@ struct ManagerTest: TestSuite::Tester {
 
     #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
     void wrongMetadataFile();
+    void missingMetadataFile();
     void unresolvedReference();
     void noPluginVersion();
     void wrongPluginVersion();
@@ -97,6 +103,7 @@ struct ManagerTest: TestSuite::Tester {
     void hierarchy();
     void destructionHierarchy();
     void crossManagerDependencies();
+    void crossManagerDependenciesWrongDestructionOrder();
     void unresolvedDependencies();
 
     void reloadPluginDirectory();
@@ -116,7 +123,13 @@ struct ManagerTest: TestSuite::Tester {
     void utf8Path();
     #endif
 
-    void debug();
+    void twoManagerInstances();
+
+    void customSuffix();
+    void disabledMetadata();
+
+    void debugLoadState();
+    void debugLoadStates();
 };
 
 ManagerTest::ManagerTest() {
@@ -130,6 +143,7 @@ ManagerTest::ManagerTest() {
 
               #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
               &ManagerTest::wrongMetadataFile,
+              &ManagerTest::missingMetadataFile,
               &ManagerTest::unresolvedReference,
               &ManagerTest::noPluginVersion,
               &ManagerTest::wrongPluginVersion,
@@ -163,6 +177,7 @@ ManagerTest::ManagerTest() {
               &ManagerTest::hierarchy,
               &ManagerTest::destructionHierarchy,
               &ManagerTest::crossManagerDependencies,
+              &ManagerTest::crossManagerDependenciesWrongDestructionOrder,
               &ManagerTest::unresolvedDependencies,
 
               &ManagerTest::reloadPluginDirectory,
@@ -182,9 +197,15 @@ ManagerTest::ManagerTest() {
               &ManagerTest::utf8Path,
               #endif
 
-              &ManagerTest::debug});
+              &ManagerTest::twoManagerInstances,
 
-    initialize();
+              &ManagerTest::customSuffix,
+              &ManagerTest::disabledMetadata,
+
+              &ManagerTest::debugLoadState,
+              &ManagerTest::debugLoadStates});
+
+    importPlugin();
 }
 
 void ManagerTest::pluginSearchPathsNotUsed() {
@@ -203,6 +224,10 @@ void ManagerTest::pluginSearchPathsNotUsed() {
 
 #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
 void ManagerTest::pluginSearchPathsNotProvided() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     struct SomePlugin: AbstractPlugin {
         static std::string pluginInterface() { return {}; }
     };
@@ -260,7 +285,7 @@ void ManagerTest::nameList() {
     #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
     /* Check that explicitly specifying the same plugin path does the same */
     {
-        PluginManager::Manager<AbstractAnimal> manager{PLUGINS_DIR};
+        PluginManager::Manager<AbstractAnimal> manager{Utility::Directory::join(PLUGINS_DIR, "animals")};
 
         CORRADE_COMPARE_AS(manager.pluginList(), (std::vector<std::string>{
             "Bulldog", "Canary", "Dog", "PitBull", "Snail"}), TestSuite::Compare::Container);
@@ -275,13 +300,7 @@ struct WrongPlugin: AbstractPlugin {
     static std::string pluginInterface() { return {}; }
 
     static std::vector<std::string> pluginSearchPaths() {
-        return {
-            #ifndef CMAKE_INTDIR
-            Utility::Directory::join(PLUGINS_DIR, "wrong")
-            #else
-            Utility::Directory::join(Utility::Directory::join(PLUGINS_DIR, "wrong"), CMAKE_INTDIR)
-            #endif
-        };
+        return {Utility::Directory::join(PLUGINS_DIR, "wrong")};
     }
 };
 
@@ -295,6 +314,23 @@ void ManagerTest::wrongMetadataFile() {
     CORRADE_COMPARE(out.str(),
         "Utility::Configuration::Configuration(): missing equals for a value\n"
         "PluginManager::Manager::load(): plugin WrongMetadata is not ready to load: PluginManager::LoadState::WrongMetadataFile\n");
+}
+
+void ManagerTest::missingMetadataFile() {
+    std::string dir = Utility::Directory::join(PLUGINS_DIR, "missing-metadata");
+    CORRADE_VERIFY(Utility::Directory::mkpath(dir));
+    CORRADE_VERIFY(Utility::Directory::writeString(Utility::Directory::join(dir, "MissingMetadata" + AbstractPlugin::pluginSuffix()), "this is not a binary"));
+
+    std::ostringstream out;
+    Error redirectError{&out};
+
+    PluginManager::Manager<WrongMetadata> manager{dir};
+    CORRADE_COMPARE(manager.loadState("MissingMetadata"), LoadState::WrongMetadataFile);
+    CORRADE_COMPARE(manager.load("MissingMetadata"), LoadState::WrongMetadataFile);
+    CORRADE_COMPARE(out.str(), Utility::formatString(
+        "PluginManager::Manager: {} was not found\n"
+        "PluginManager::Manager::load(): plugin MissingMetadata is not ready to load: PluginManager::LoadState::WrongMetadataFile\n",
+        Utility::Directory::join(dir, "MissingMetadata.conf")));
 }
 
 void ManagerTest::unresolvedReference() {
@@ -330,7 +366,7 @@ void ManagerTest::wrongPluginVersion() {
     PluginManager::Manager<AbstractFood> foodManager;
     CORRADE_COMPARE(foodManager.load("OldBread"), PluginManager::LoadState::WrongPluginVersion);
     CORRADE_COMPARE(foodManager.loadState("OldBread"), PluginManager::LoadState::NotLoaded);
-    CORRADE_COMPARE(out.str(), "PluginManager::Manager::load(): wrong version of plugin OldBread, expected 5 but got 0\n");
+    CORRADE_COMPARE(out.str(), "PluginManager::Manager::load(): wrong version of plugin OldBread, expected 6 but got 0\n");
 }
 
 void ManagerTest::noPluginInterface() {
@@ -404,7 +440,7 @@ void ManagerTest::loadNonexistent() {
     #if defined(CORRADE_TARGET_EMSCRIPTEN) || defined(CORRADE_TARGET_WINDOWS_RT) || defined(CORRADE_TARGET_IOS) || defined(CORRADE_TARGET_ANDROID)
     CORRADE_COMPARE(out.str(), "PluginManager::Manager::load(): plugin Nonexistent was not found\n");
     #else
-    CORRADE_COMPARE(out.str(), "PluginManager::Manager::load(): plugin Nonexistent is not static and was not found in " PLUGINS_DIR "\n");
+    CORRADE_COMPARE(out.str(), "PluginManager::Manager::load(): plugin Nonexistent is not static and was not found in " PLUGINS_DIR "/animals\n");
     #endif
 }
 
@@ -502,7 +538,7 @@ void ManagerTest::dynamicPluginFilePathConflictsWithLoadedPlugin() {
         std::ostringstream out;
         Error redirectError{&out};
         CORRADE_COMPARE(manager.load(DOG_PLUGIN_FILENAME), LoadState::Used);
-        CORRADE_COMPARE(out.str(), "PluginManager::load(): Dog" PLUGIN_FILENAME_SUFFIX " conflicts with currently loaded plugin of the same name\n");
+        CORRADE_COMPARE(out.str(), "PluginManager::load(): Dog"  + AbstractPlugin::pluginSuffix() + " conflicts with currently loaded plugin of the same name\n");
     }
 
     /* AGoodBoy is provided by (the currently loaded) Dog plugin */
@@ -557,17 +593,24 @@ void ManagerTest::dynamicPluginFilePathRemoveOnFail() {
 #endif
 
 void ManagerTest::configurationGlobal() {
-    PluginManager::Manager<AbstractAnimal> manager;
+    {
+        PluginManager::Manager<AbstractAnimal> manager;
 
-    CORRADE_COMPARE(manager.loadState("Canary"), LoadState::Static);
+        CORRADE_COMPARE(manager.loadState("Canary"), LoadState::Static);
 
-    /* Change the global config, the instance then gets a copy */
-    PluginMetadata& metadata = *manager.metadata("Canary");
-    metadata.configuration().setValue("name", "BIRD UP!!");
+        /* Change the global config, the instance then gets a copy */
+        PluginMetadata& metadata = *manager.metadata("Canary");
+        metadata.configuration().setValue("name", "BIRD UP!!");
 
-    Containers::Pointer<AbstractAnimal> animal = manager.instantiate("Canary");
-    CORRADE_COMPARE(animal->name(), "BIRD UP!!");
-    CORRADE_COMPARE(animal->configuration().value("name"), "BIRD UP!!");
+        Containers::Pointer<AbstractAnimal> animal = manager.instantiate("Canary");
+        CORRADE_COMPARE(animal->name(), "BIRD UP!!");
+        CORRADE_COMPARE(animal->configuration().value("name"), "BIRD UP!!");
+    } {
+        /* When constructing the manager next time, the configuration should go
+           back to its initial state */
+        PluginManager::Manager<AbstractAnimal> manager;
+        CORRADE_COMPARE(manager.metadata("Canary")->configuration().value("name"), "Achoo");
+    }
 }
 
 void ManagerTest::configurationLocal() {
@@ -689,6 +732,7 @@ void ManagerTest::destructionHierarchy() {
 void ManagerTest::crossManagerDependencies() {
     PluginManager::Manager<AbstractAnimal> manager;
     PluginManager::Manager<AbstractFood> foodManager;
+    foodManager.registerExternalManager(manager);
 
     #ifdef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
     CORRADE_SKIP("Cross-manager dependencies are meaningful only for dynamic plugins");
@@ -721,10 +765,32 @@ void ManagerTest::crossManagerDependencies() {
     /* Verify that the plugin can be instanced only through its own manager */
     CORRADE_VERIFY(manager.instantiate("Canary"));
 
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't fully test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectError{&out};
     CORRADE_VERIFY(!foodManager.instantiate("Canary"));
     CORRADE_COMPARE(out.str(), "PluginManager::Manager::instantiate(): plugin Canary is not loaded\n");
+}
+
+void ManagerTest::crossManagerDependenciesWrongDestructionOrder() {
+    #ifdef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
+    CORRADE_SKIP("Cross-manager dependencies are meaningful only for dynamic plugins");
+    #endif
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't fully test assertions");
+    #endif
+
+    Containers::Optional<PluginManager::Manager<AbstractAnimal>> manager{Containers::InPlaceInit};
+    PluginManager::Manager<AbstractFood> foodManager;
+    foodManager.registerExternalManager(*manager);
+
+    std::ostringstream out;
+    Error redirectError{&out};
+    manager = Containers::NullOpt;
+    CORRADE_COMPARE(out.str(), "PluginManager::Manager: wrong destruction order, cz.mosra.corrade.PluginManager.Test.AbstractAnimal/1.0 plugins still needed by 1 other managers for external dependencies\n");
 }
 
 void ManagerTest::unresolvedDependencies() {
@@ -733,6 +799,7 @@ void ManagerTest::unresolvedDependencies() {
     #else
     PluginManager::Manager<AbstractAnimal> manager;
     PluginManager::Manager<AbstractFood> foodManager;
+    foodManager.registerExternalManager(manager);
 
     /* HotDogWithSnail depends on Dog and Snail, which cannot be loaded, so the
        loading fails too. Dog plugin then shouldn't have HotDogWithSnail in
@@ -758,16 +825,20 @@ void ManagerTest::reloadPluginDirectory() {
 
     /* Load PitBull and rename the plugin */
     CORRADE_COMPARE(manager.load("PitBull"), LoadState::Loaded);
-    Utility::Directory::move(Utility::Directory::join(PLUGINS_DIR, std::string("PitBull") + PLUGIN_FILENAME_SUFFIX),
-                             Utility::Directory::join(PLUGINS_DIR, std::string("LostPitBull") + PLUGIN_FILENAME_SUFFIX));
-    Utility::Directory::move(Utility::Directory::join(PLUGINS_DIR, "PitBull.conf"),
-                             Utility::Directory::join(PLUGINS_DIR, "LostPitBull.conf"));
+    Utility::Directory::move(
+        Utility::Directory::join({PLUGINS_DIR, "animals", "PitBull"  + AbstractPlugin::pluginSuffix()}),
+        Utility::Directory::join({PLUGINS_DIR, "animals", "LostPitBull" + AbstractPlugin::pluginSuffix()}));
+    Utility::Directory::move(
+        Utility::Directory::join({PLUGINS_DIR, "animals", "PitBull.conf"}),
+        Utility::Directory::join({PLUGINS_DIR, "animals", "LostPitBull.conf"}));
 
     /* Rename Snail */
-    Utility::Directory::move(Utility::Directory::join(PLUGINS_DIR, std::string("Snail") + PLUGIN_FILENAME_SUFFIX),
-                             Utility::Directory::join(PLUGINS_DIR, std::string("LostSnail") + PLUGIN_FILENAME_SUFFIX));
-    Utility::Directory::move(Utility::Directory::join(PLUGINS_DIR, "Snail.conf"),
-                             Utility::Directory::join(PLUGINS_DIR, "LostSnail.conf"));
+    Utility::Directory::move(
+        Utility::Directory::join({PLUGINS_DIR, "animals", "Snail" + AbstractPlugin::pluginSuffix()}),
+        Utility::Directory::join({PLUGINS_DIR, "animals", "LostSnail" + AbstractPlugin::pluginSuffix()}));
+    Utility::Directory::move(
+        Utility::Directory::join({PLUGINS_DIR, "animals", "Snail.conf"}),
+        Utility::Directory::join({PLUGINS_DIR, "animals", "LostSnail.conf"}));
 
     /* Reload plugin dir and check new name list */
     manager.reloadPluginDirectory();
@@ -783,15 +854,19 @@ void ManagerTest::reloadPluginDirectory() {
     /** @todo Also test that "WrongMetadataFile" plugins are reloaded */
 
     /* Rename everything back and clean up */
-    Utility::Directory::move(Utility::Directory::join(PLUGINS_DIR, std::string("LostPitBull") + PLUGIN_FILENAME_SUFFIX),
-                             Utility::Directory::join(PLUGINS_DIR, std::string("PitBull") + PLUGIN_FILENAME_SUFFIX));
-    Utility::Directory::move(Utility::Directory::join(PLUGINS_DIR, "LostPitBull.conf"),
-                             Utility::Directory::join(PLUGINS_DIR, "PitBull.conf"));
+    Utility::Directory::move(
+        Utility::Directory::join({PLUGINS_DIR, "animals", "LostPitBull" + AbstractPlugin::pluginSuffix()}),
+        Utility::Directory::join({PLUGINS_DIR, "animals", "PitBull" + AbstractPlugin::pluginSuffix()}));
+    Utility::Directory::move(
+        Utility::Directory::join({PLUGINS_DIR, "animals", "LostPitBull.conf"}),
+        Utility::Directory::join({PLUGINS_DIR, "animals", "PitBull.conf"}));
 
-    Utility::Directory::move(Utility::Directory::join(PLUGINS_DIR, std::string("LostSnail") + PLUGIN_FILENAME_SUFFIX),
-                             Utility::Directory::join(PLUGINS_DIR, std::string("Snail") + PLUGIN_FILENAME_SUFFIX));
-    Utility::Directory::move(Utility::Directory::join(PLUGINS_DIR, "LostSnail.conf"),
-                             Utility::Directory::join(PLUGINS_DIR, "Snail.conf"));
+    Utility::Directory::move(
+        Utility::Directory::join({PLUGINS_DIR, "animals", "LostSnail" + AbstractPlugin::pluginSuffix()}),
+        Utility::Directory::join({PLUGINS_DIR, "animals", "Snail" + AbstractPlugin::pluginSuffix()}));
+    Utility::Directory::move(
+        Utility::Directory::join({PLUGINS_DIR, "animals", "LostSnail.conf"}),
+        Utility::Directory::join({PLUGINS_DIR, "animals", "Snail.conf"}));
 
     manager.reloadPluginDirectory();
 
@@ -902,6 +977,10 @@ void ManagerTest::setPreferredPlugins() {
 }
 
 void ManagerTest::setPreferredPluginsUnknownAlias() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     PluginManager::Manager<AbstractAnimal> manager;
 
     std::ostringstream out;
@@ -911,6 +990,10 @@ void ManagerTest::setPreferredPluginsUnknownAlias() {
 }
 
 void ManagerTest::setPreferredPluginsDoesNotProvide() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     PluginManager::Manager<AbstractAnimal> manager;
 
     std::ostringstream out;
@@ -939,15 +1022,21 @@ void ManagerTest::setPreferredPluginsOverridePrimaryPlugin() {
 }
 
 void ManagerTest::utf8Path() {
+    #if defined(__has_feature)
+    #if __has_feature(address_sanitizer)
+    CORRADE_SKIP("Because the same shared object is loaded from two different paths, its globals (the vtable) are loaded twice. Skipping to avoid AddressSanitizer complain about ODR violation.");
+    #endif
+    #endif
+
     /* Copy the dog plugin to a new UTF-8 path */
     const std::string utf8PluginsDir = Utility::Directory::join(PLUGINS_DIR, "hýždě");
     CORRADE_VERIFY(Utility::Directory::mkpath(utf8PluginsDir));
     Utility::Directory::write(
-        Utility::Directory::join(utf8PluginsDir, std::string("Dog") + PLUGIN_FILENAME_SUFFIX),
-        Utility::Directory::mapRead(Utility::Directory::join(PLUGINS_DIR, std::string("Dog") + PLUGIN_FILENAME_SUFFIX)));
+        Utility::Directory::join(utf8PluginsDir, "Dog" + AbstractPlugin::pluginSuffix()),
+        Utility::Directory::mapRead(Utility::Directory::join({PLUGINS_DIR, "animals", "Dog" + AbstractPlugin::pluginSuffix()})));
     Utility::Directory::write(
         Utility::Directory::join(utf8PluginsDir, "Dog.conf"),
-        Utility::Directory::mapRead(Utility::Directory::join(PLUGINS_DIR, "Dog.conf")));
+        Utility::Directory::mapRead(Utility::Directory::join({PLUGINS_DIR, "animals", "Dog.conf"})));
 
     PluginManager::Manager<AbstractAnimal> manager{utf8PluginsDir};
     /* One static plugin always present */
@@ -967,11 +1056,135 @@ void ManagerTest::utf8Path() {
 }
 #endif
 
-void ManagerTest::debug() {
+void ManagerTest::twoManagerInstances() {
+    PluginManager::Manager<AbstractAnimal> a;
+    PluginManager::Manager<AbstractAnimal> b;
+
+    #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
+    CORRADE_COMPARE_AS(a.aliasList(), (std::vector<std::string>{
+        "AGoodBoy", "Bulldog", "Canary", "Dog", "JustSomeBird", "JustSomeMammal", "PitBull", "Snail"}), TestSuite::Compare::Container);
+    CORRADE_COMPARE_AS(b.aliasList(), (std::vector<std::string>{
+        "AGoodBoy", "Bulldog", "Canary", "Dog", "JustSomeBird", "JustSomeMammal", "PitBull", "Snail"}), TestSuite::Compare::Container);
+    #else
+    CORRADE_COMPARE_AS(a.aliasList(), (std::vector<std::string>{
+        "Canary", "JustSomeBird"}), TestSuite::Compare::Container);
+    CORRADE_COMPARE_AS(b.aliasList(), (std::vector<std::string>{
+        "Canary", "JustSomeBird"}), TestSuite::Compare::Container);
+    #endif
+
+    /* Verify that loading a dynamic plugin works the same in both */
+    #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
+    {
+        Containers::Pointer<AbstractAnimal> animal = a.loadAndInstantiate("Dog");
+        CORRADE_VERIFY(animal);
+        CORRADE_COMPARE(animal->name(), "Doug");
+        CORRADE_COMPARE(animal->legCount(), 4);
+    } {
+        Containers::Pointer<AbstractAnimal> animal = b.loadAndInstantiate("Dog");
+        CORRADE_VERIFY(animal);
+        CORRADE_COMPARE(animal->name(), "Doug");
+        CORRADE_COMPARE(animal->legCount(), 4);
+    }
+    #endif
+
+    /* Verify that loading a static plugin works also */
+    {
+        Containers::Pointer<AbstractAnimal> animal = a.loadAndInstantiate("Canary");
+        CORRADE_VERIFY(animal);
+        CORRADE_COMPARE(animal->name(), "Achoo");
+        CORRADE_COMPARE(animal->legCount(), 2);
+    } {
+        Containers::Pointer<AbstractAnimal> animal = b.loadAndInstantiate("Canary");
+        CORRADE_VERIFY(animal);
+        CORRADE_COMPARE(animal->name(), "Achoo");
+        CORRADE_COMPARE(animal->legCount(), 2);
+    }
+}
+
+void ManagerTest::customSuffix() {
+    {
+        PluginManager::Manager<AbstractCustomSuffix> manager;
+
+        #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
+        CORRADE_COMPARE(manager.pluginList(), (std::vector<std::string>{"CustomSuffix", "CustomSuffixStatic"}));
+        #else
+        CORRADE_COMPARE(manager.pluginList(), (std::vector<std::string>{"CustomSuffixStatic"}));
+        #endif
+
+        CORRADE_COMPARE(manager.load("CustomSuffixStatic"), LoadState::Static);
+        Containers::Pointer<AbstractCustomSuffix> pluginStatic = manager.instantiate("CustomSuffixStatic");
+        CORRADE_VERIFY(pluginStatic);
+        CORRADE_COMPARE(pluginStatic->greet(), "Hiya but static!");
+
+        #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
+        CORRADE_COMPARE(manager.load("CustomSuffix"), LoadState::Loaded);
+        Containers::Pointer<AbstractCustomSuffix> plugin = manager.instantiate("CustomSuffix");
+        CORRADE_VERIFY(plugin);
+        CORRADE_COMPARE(plugin->greet(), "Hiya!");
+        #endif
+    }
+
+    #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
+    /* Loading by file path accesses the metadata files through a different
+       code path, verify that also */
+    {
+        PluginManager::Manager<AbstractCustomSuffix> manager{"nonexistent"};
+        CORRADE_COMPARE(manager.load(Utility::Directory::join({PLUGINS_DIR, "custom-suffix", "CustomSuffix" + AbstractCustomSuffix::pluginSuffix()})), LoadState::Loaded);
+        Containers::Pointer<AbstractCustomSuffix> plugin = manager.instantiate("CustomSuffix");
+        CORRADE_VERIFY(plugin);
+        CORRADE_COMPARE(plugin->greet(), "Hiya!");
+    }
+    #endif
+}
+
+void ManagerTest::disabledMetadata() {
+    {
+        PluginManager::Manager<AbstractDisabledMetadata> manager;
+
+        #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
+        CORRADE_COMPARE(manager.pluginList(), (std::vector<std::string>{"DisabledMetadata", "DisabledMetadataStatic"}));
+        #else
+        CORRADE_COMPARE(manager.pluginList(), (std::vector<std::string>{"DisabledMetadataStatic"}));
+        #endif
+
+        CORRADE_COMPARE(manager.load("DisabledMetadataStatic"), LoadState::Static);
+        Containers::Pointer<AbstractDisabledMetadata> pluginStatic = manager.instantiate("DisabledMetadataStatic");
+        CORRADE_VERIFY(pluginStatic);
+        CORRADE_COMPARE(pluginStatic->greet(), "Olaa but static!");
+
+        #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
+        CORRADE_COMPARE(manager.load("DisabledMetadata"), LoadState::Loaded);
+        Containers::Pointer<AbstractDisabledMetadata> plugin = manager.instantiate("DisabledMetadata");
+        CORRADE_VERIFY(plugin);
+        CORRADE_COMPARE(plugin->greet(), "Olaa!");
+        #endif
+    }
+
+    #ifndef CORRADE_PLUGINMANAGER_NO_DYNAMIC_PLUGIN_SUPPORT
+    /* Loading by file path accesses the metadata files through a different
+       code path, verify that also */
+    {
+        PluginManager::Manager<AbstractDisabledMetadata> manager{"nonexistent"};
+        CORRADE_COMPARE(manager.load(Utility::Directory::join({PLUGINS_DIR, "disabled-metadata", "DisabledMetadata" + AbstractDisabledMetadata::pluginSuffix()})), LoadState::Loaded);
+        Containers::Pointer<AbstractDisabledMetadata> plugin = manager.instantiate("DisabledMetadata");
+        CORRADE_VERIFY(plugin);
+        CORRADE_COMPARE(plugin->greet(), "Olaa!");
+    }
+    #endif
+}
+
+void ManagerTest::debugLoadState() {
     std::ostringstream o;
 
     Debug(&o) << LoadState::Static << LoadState(0x3f);
     CORRADE_COMPARE(o.str(), "PluginManager::LoadState::Static PluginManager::LoadState(0x3f)\n");
+}
+
+void ManagerTest::debugLoadStates() {
+    std::ostringstream out;
+
+    Debug{&out} << (LoadState::Static|LoadState::NotFound) << LoadStates{};
+    CORRADE_COMPARE(out.str(), "PluginManager::LoadState::NotFound|PluginManager::LoadState::Static PluginManager::LoadStates{}\n");
 }
 
 }}}}

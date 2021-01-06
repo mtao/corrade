@@ -4,7 +4,7 @@
 #   Original authors — credit is appreciated but not required:
 #
 #       2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-#       2017, 2018, 2019 — Vladimír Vondruš <mosra@centrum.cz>
+#       2017, 2018, 2019, 2020 — Vladimír Vondruš <mosra@centrum.cz>
 #
 #   This is free and unencumbered software released into the public domain.
 #
@@ -27,9 +27,9 @@
 #   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #
 
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.4)
 
-project(CorradeInterconnectExample)
+project(CorradeInterconnectExample CXX)
 
 # Add module path in case this is project root
 if(PROJECT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)

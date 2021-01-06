@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -27,6 +27,7 @@
 
 /** @file
  * @brief Class @ref Corrade::TestSuite::Compare::SortedContainer
+ * @m_since{2019,10}
  */
 
 #include <algorithm>
@@ -49,13 +50,13 @@ template<class T> class SortedContainer: public Container<T> {};
 #ifndef DOXYGEN_GENERATING_OUTPUT
 template<class T> class Comparator<Compare::SortedContainer<T>>: public Comparator<Compare::Container<T>> {
     public:
-        bool operator()(const T& actual, const T& expected);
+        ComparisonStatusFlags operator()(const T& actual, const T& expected);
 
     private:
         T _actualSorted, _expectedSorted;
 };
 
-template<class T> bool Comparator<Compare::SortedContainer<T>>::operator()(const T& actual, const T& expected) {
+template<class T> ComparisonStatusFlags Comparator<Compare::SortedContainer<T>>::operator()(const T& actual, const T& expected) {
     _actualSorted = actual;
     _expectedSorted = expected;
 

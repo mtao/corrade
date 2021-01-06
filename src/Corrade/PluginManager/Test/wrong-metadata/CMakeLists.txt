@@ -2,7 +2,7 @@
 #   This file is part of Corrade.
 #
 #   Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-#               2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+#               2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a
 #   copy of this software and associated documentation files (the "Software"),
@@ -28,9 +28,15 @@ corrade_add_plugin(WrongMetadata ${CMAKE_CURRENT_BINARY_DIR} "" WrongMetadata.co
 
 set_target_properties(
     WrongMetadata WrongMetadata-metadata
-    PROPERTIES FOLDER "Corrade/PluginManager/Test")
-target_include_directories(WrongMetadata PRIVATE $<TARGET_FILE_DIR:PluginManagerManagerTest>)
+    PROPERTIES
+        FOLDER "Corrade/PluginManager/Test"
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/wrong-metadata
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/wrong-metadata
+        ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}/wrong-metadata)
+target_include_directories(WrongMetadata PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../$<CONFIG>)
 
-if(CORRADE_TARGET_WINDOWS)
+# DLLs don't allow unresolved symbols; on static builds there's no dynamic
+# plugin manager library to refer to so it has to be linked as well
+if(CORRADE_BUILD_STATIC OR CORRADE_TARGET_WINDOWS)
     target_link_libraries(WrongMetadata PRIVATE CorradePluginManagerTestLib)
 endif()

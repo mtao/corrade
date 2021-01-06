@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -85,6 +85,10 @@ void UnicodeTest::nextUtf8() {
 
     /* Four-byte sequence */
     CORRADE_COMPARE(Unicode::nextChar("   \xf4\x85\x98\x80", 3), std::make_pair(1070592, 7));
+
+    /* std::string argument */
+    CORRADE_COMPARE(Unicode::nextChar(std::string{"   \xea\xb8\x89"}, 3),
+        std::make_pair(44553, 6));
 }
 
 void UnicodeTest::nextUtf8Error() {
@@ -99,6 +103,10 @@ void UnicodeTest::nextUtf8Error() {
 }
 
 void UnicodeTest::nextUtf8Empty() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectError{&out};
     Unicode::nextChar("", 0);
@@ -118,6 +126,10 @@ void UnicodeTest::prevUtf8() {
 
     /* Four-byte sequence */
     CORRADE_COMPARE(Unicode::prevChar("   \xf4\x85\x98\x80", 7), std::make_pair(1070592, 3));
+
+    /* std::string argument */
+    CORRADE_COMPARE(Unicode::prevChar(std::string{"   \xea\xb8\x89"}, 6),
+        std::make_pair(44553, 3));
 }
 
 void UnicodeTest::prevUtf8Error() {
@@ -144,6 +156,10 @@ void UnicodeTest::prevUtf8Error() {
 }
 
 void UnicodeTest::prevUtf8Empty() {
+    #ifdef CORRADE_NO_ASSERT
+    CORRADE_SKIP("CORRADE_NO_ASSERT defined, can't test assertions");
+    #endif
+
     std::ostringstream out;
     Error redirectError{&out};
     Unicode::prevChar("hello", 0);

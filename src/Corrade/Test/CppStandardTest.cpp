@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -38,7 +38,7 @@ CppStandardTest::CppStandardTest() {
     #ifdef COMPILING_AS_CPP11
     setTestName("Cpp11StandardTest");
     #elif defined(COMPILING_AS_CPP14)
-    setTestName("Cpp14StandardTest");
+    setTestName(TEST_NAME);
     #elif defined(COMPILING_AS_CPP17)
     setTestName("Cpp17StandardTest");
     #elif defined(COMPILING_AS_CPP2A)
@@ -57,7 +57,7 @@ void CppStandardTest::test() {
     #ifdef COMPILING_AS_CPP11
     {
         #ifdef _MSC_VER
-        CORRADE_EXPECT_FAIL("MSVC always compiles at least as C++14");
+        CORRADE_EXPECT_FAIL("MSVC always compiles at least as C++14.");
         #endif
         CORRADE_COMPARE(CORRADE_CXX_STANDARD, 201103L);
     }

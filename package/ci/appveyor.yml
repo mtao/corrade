@@ -16,6 +16,28 @@ environment:
     APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
     APPVEYOR_JOB_NAME: windows-msvc2017
     CONFIGURATION: Debug
+  - TARGET: desktop
+    COMPILER: msvc
+    ANSI_COLORS: ON
+    PLATFORM: x64
+    APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
+    APPVEYOR_JOB_NAME: windows-msvc2019
+    CONFIGURATION: Debug
+  - TARGET: desktop
+    COMPILER: msvc
+    ANSI_COLORS: ON
+    PLATFORM: x64
+    APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
+    APPVEYOR_JOB_NAME: windows-static-msvc2019
+    CONFIGURATION: Debug
+    BUILD_STATIC: ON
+  - TARGET: desktop
+    COMPILER: msvc-clang
+    ANSI_COLORS: ON
+    PLATFORM: x64
+    APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
+    APPVEYOR_JOB_NAME: windows-msvc2019-clang
+    CONFIGURATION: Debug
   # Build the 32bit and non-ANSI as Release, one on 2015 and one on 2017, so we
   # catch things that are not a problem on either with 64bit and Debug.
   - TARGET: desktop
@@ -37,9 +59,6 @@ environment:
     APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
     APPVEYOR_JOB_NAME: windows-mingw
   - TARGET: rt
-    APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2015
-    APPVEYOR_JOB_NAME: windows-rt-msvc2015
-  - TARGET: rt
     APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
     APPVEYOR_JOB_NAME: windows-rt-msvc2017
 
@@ -51,11 +70,19 @@ notifications:
   on_build_status_changed: true
 
 install:
-- cinst ninja
+# Ninja. `cinst ninja` started 503ing in late November 2019 and wasn't really
+# reliable before either. So install by hand, as that's reliable always.
+- IF NOT EXIST %APPVEYOR_BUILD_FOLDER%\ninja-win.zip appveyor DownloadFile https://github.com/ninja-build/ninja/releases/download/v1.9.0/ninja-win.zip
+- 7z x ninja-win.zip -oC:/tools/ninja
+
 - set PATH=C:/tools/ninja;%PATH%
 - IF "%TARGET%" == "desktop" IF "%COMPILER%" == "mingw" pip install codecov
 
 build_script:
-- IF "%TARGET%" == "desktop" IF "%COMPILER%" == "msvc" call package\ci\appveyor-desktop.bat
+- IF NOT "%BUILD_STATIC%" == "ON" set BUILD_STATIC=OFF
+- IF "%TARGET%" == "desktop" IF "%COMPILER:~0,4%" == "msvc" call package\ci\appveyor-desktop.bat
 - IF "%TARGET%" == "desktop" IF "%COMPILER%" == "mingw" call package\ci\appveyor-desktop-mingw.bat
 - IF "%TARGET%" == "rt" call package\ci\appveyor-rt.bat
+
+cache:
+- ninja-win.zip -> package/ci/appveyor-cache-reset.txt

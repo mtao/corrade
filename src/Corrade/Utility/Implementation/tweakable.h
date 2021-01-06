@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -42,7 +42,7 @@ struct TweakableVariable {
        access. */
     CORRADE_ALIGNAS(8) char storage[TweakableStorageSize]{};
     int line{};
-    TweakableState(*parser)(Containers::ArrayView<const char>, Containers::StaticArrayView<TweakableStorageSize, char>);
+    TweakableState(*parser)(Containers::StringView, Containers::StaticArrayView<TweakableStorageSize, char>);
     void(*scopeLambda)(void(*)(), void*){};
     void(*scopeUserCall)(){};
     void* scopeUserData{};

@@ -2,7 +2,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -39,8 +39,8 @@ namespace Corrade { namespace TestSuite { // the namespace is important
 template<> class Comparator<FileContents> {
     public:
         Comparator(const std::string& pathPrefix = {});
-        bool operator()(const std::string& actual, const std::string& expected);
-        void printErrorMessage(Utility::Error& e, const std::string& actual, const std::string& expected) const;
+        ComparisonStatusFlags operator()(const std::string& actual, const std::string& expected);
+        void printMessage(ComparisonStatusFlags flags, Utility::Debug& out, const std::string& actual, const std::string& expected) const;
 
         // ...
 };
@@ -68,3 +68,6 @@ CORRADE_COMPARE_WITH("actual.dat", "expected.dat",
 /* [Comparator-parameters-usage] */
 }
 };
+
+/* To prevent macOS ranlib complaining that there are no symbols */
+int main() {}

@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -49,6 +49,17 @@ expected to be in UTF-8. Example usage:
 @snippet TestSuite.cpp Compare-StringToFile
 
 See @ref TestSuite-Comparator-pseudo-types for more information.
+
+@section TestSuite-Compare-StringToFile-save-diagnostic Saving files for failed comparisons
+
+The comparator supports the @ref TestSuite-Tester-save-diagnostic "--save-diagnostic option"
+--- if the comparison fails, it saves actual file contents to given directory
+with a filename matching the expected file. You can use it to perform a manual
+data comparison with an external tool or for example to quickly update expected
+test data --- point the option to the directory with expected test files and
+let the test overwrite them with actual results. The @ref StringToFile variant
+supports the same.
+
 @see @ref Compare::File, @ref Compare::FileToString
 */
 class StringToFile {};
@@ -60,9 +71,11 @@ template<> class CORRADE_TESTSUITE_EXPORT Comparator<Compare::StringToFile> {
     public:
         Comparator();
 
-        bool operator()(const std::string& actualContents, const std::string& filename);
+        ComparisonStatusFlags operator()(const std::string& actualContents, const std::string& filename);
 
-        void printErrorMessage(Utility::Error& e, const char* actual, const char* expected) const;
+        void printMessage(ComparisonStatusFlags flags, Utility::Debug& out, const char* actual, const char* expected) const;
+
+        void saveDiagnostic(ComparisonStatusFlags flags, Utility::Debug& out, const std::string& path);
 
     private:
         enum class State {

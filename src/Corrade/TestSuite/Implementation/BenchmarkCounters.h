@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -64,7 +64,7 @@ inline std::uint64_t cpuTime() {
     /* FILETIME returns multiples of 100 nanoseconds */
     FILETIME a, b, c, d;
     if(!GetProcessTimes(GetCurrentProcess(), &a, &b, &c, &d))
-        return 0;
+        return 0; /* LCOV_EXCL_LINE */
     return ((std::uint64_t(d.dwHighDateTime) << 32)|std::uint64_t(d.dwLowDateTime))*100;
     #else
     return 0;

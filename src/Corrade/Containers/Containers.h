@@ -4,7 +4,7 @@
     This file is part of Corrade.
 
     Copyright © 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016,
-                2017, 2018, 2019 Vladimír Vondruš <mosra@centrum.cz>
+                2017, 2018, 2019, 2020 Vladimír Vondruš <mosra@centrum.cz>
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -39,8 +39,15 @@ namespace Corrade { namespace Containers {
 #ifndef DOXYGEN_GENERATING_OUTPUT
 template<class T, class = void(*)(T*, std::size_t)> class Array;
 template<class> class ArrayView;
+class ArrayTuple;
 template<std::size_t, class> class StaticArrayView;
 template<std::size_t, class> class StaticArray;
+template<class T> using Array1 = StaticArray<1, T>;
+template<class T> using Array2 = StaticArray<2, T>;
+template<class T> using Array3 = StaticArray<3, T>;
+template<class T> using Array4 = StaticArray<4, T>;
+
+template<class T, std::size_t size = 1 << (sizeof(T)*8 - 6)> class BigEnumSet;
 
 template<unsigned, class> class StridedDimensions;
 template<unsigned, class> class StridedArrayView;
@@ -48,6 +55,7 @@ template<unsigned, class> class StridedIterator;
 template<class T> using StridedArrayView1D = StridedArrayView<1, T>;
 template<class T> using StridedArrayView2D = StridedArrayView<2, T>;
 template<class T> using StridedArrayView3D = StridedArrayView<3, T>;
+template<class T> using StridedArrayView4D = StridedArrayView<4, T>;
 
 template<class T, typename std::underlying_type<T>::type fullValue = typename std::underlying_type<T>::type(~0)> class EnumSet;
 template<class> class LinkedList;
@@ -56,6 +64,13 @@ template<class Derived, class List = LinkedList<Derived>> class LinkedListItem;
 template<class T> class Optional;
 template<class T> class Pointer;
 template<class T> class Reference;
+
+class ScopeGuard;
+
+class String;
+template<class> class BasicStringView;
+typedef BasicStringView<const char> StringView;
+typedef BasicStringView<char> MutableStringView;
 #endif
 
 }}
